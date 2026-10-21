@@ -85,8 +85,10 @@ export async function runCli(args: string[]): Promise<number> {
           console.log(data.title);
           if (data.date) console.log(data.date);
           for (const a of data.analytes) {
+            // The result already carries its unit ("13.5 g/dL"), so print units only when it is missing.
+            const units = a.units && !a.result.endsWith(a.units) ? a.units : "";
             console.log(
-              [a.name, a.result, a.units ?? "", a.referenceRange ?? "", a.flag ?? ""]
+              [a.name, a.result, units, a.referenceRange ?? "", a.flag ?? ""]
                 .filter(Boolean)
                 .join("\t"),
             );

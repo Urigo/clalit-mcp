@@ -66,16 +66,10 @@ npx tsx packages/cli/src/main.ts export                 # ./clalit-export-<today
 npx tsx packages/cli/src/main.ts export --out ~/health  # under that directory; --no-documents skips the PDFs
 ```
 
-One sign-in, a few minutes, one folder: `labs/list.json` and one JSON per result under `labs/details/` with the PDF
-beside it under `labs/files/`, `prescriptions/list.json`, `lab-orders/` with each order's tests, and at the root a
-`README.md` that is the export's own data dictionary — what each folder holds, how a record is shaped, what the
-export does *not* contain — written for an AI assistant, with `CLAUDE.md` / `AGENTS.md` pointing at it, and
-`export-errors.json` for anything that failed. Open the folder in the Claude or ChatGPT desktop app and ask; or feed
-it to a database (see [liberate-labs](https://github.com/Urigo/liberate-labs), which loads it beside Maccabi and
-Blueprint results for cross-lab trends). The labs list is asked for from 01.01.1990 to today, far wider than the
-portal's own default range. A rerun into the same folder writes nothing it already has. The folder's layout follows
-[Health Records Export for Maccabi](https://github.com/RoniRachmani/health-records-export-for-maccabi), so one reader
-serves both funds. The ZIP-free folder is not encrypted: keep it where you keep your records.
+One folder: labs (one JSON per result, plus its PDF), prescriptions, lab orders, and a root `README.md` that describes
+each folder for an AI assistant (layout in [docs/CLI.md](docs/CLI.md)). `--from`/`--to` (`dd.MM.yyyy`) filter labs only, default 01.01.1990 to today; a rerun skips what it already has.
+Layout modeled on [Health Records Export for Maccabi](https://github.com/RoniRachmani/health-records-export-for-maccabi); [liberate-labs](https://github.com/Urigo/liberate-labs) can load it into SQLite.
+The folder is not encrypted, and anything you open in an AI app is sent to that provider (see the privacy note at the top).
 
 ## MCP
 

@@ -3,12 +3,11 @@
  * and can hand it whole to an assistant, a spreadsheet, or a database — instead of asking the MCP for
  * one record at a time while the session lasts.
  *
- * The folder's shape follows the one Health Records Export for Maccabi writes
- * (https://github.com/RoniRachmani/health-records-export-for-maccabi), so a reader that knows one
- * knows the other: a folder per section, `list.json` for the list, one file per record under
- * `details/`, documents under `files/`, and at the root a `README.md` that is the export's own data
- * dictionary, `export-errors.json` for what failed, and `CLAUDE.md` / `AGENTS.md` pointing at the
- * README. Every record is wrapped with where it came from and when.
+ * The folder's layout is modeled on the one Health Records Export for Maccabi writes
+ * (https://github.com/RoniRachmani/health-records-export-for-maccabi): a folder per section,
+ * `list.json` for the list, one file per record under `details/`, documents under `files/`, and at
+ * the root a `README.md` that is the export's own data dictionary, `export-errors.json` for what
+ * failed, and `CLAUDE.md` / `AGENTS.md` pointing at the README. Every record is wrapped with where it came from and when.
  *
  * Reads only through the readers, so the owner-scope rules hold: refs come from the owner's own lists.
  * Requests are paced; an item that fails is filed and the export goes on; an ended session stops it,
@@ -247,34 +246,40 @@ function readme(r: { startedAt: string; folders: Record<string, number>; problem
   const has = (f: string) => (r.folders[f] ?? 0) > 0;
   const failedIn = new Set(r.problems.map((p) => p.where.split("/")[0]));
   const missing = ["labs", "prescriptions", "lab-orders"].filter((f) => !has(f));
+  const files = (n: number | undefined) => `${n ?? 0} ${n === 1 ? "file" : "files"}`;
   const absent = missing.map((f) => `\`${f}/\`` + (failedIn.has(f) ? " (collecting it failed — see export-errors.json)" : " (nothing on record, or not reached)")).join(", ");
   return `# Clalit health records export
 
 > **Member:** this folder is a copy of your own records from Clalit Online (e-services.clalit.co.il), made by
 > clalit-mcp. Open the whole folder in an AI assistant to ask about it; keep it somewhere safe — it is not encrypted.
+> Anything you open in an AI assistant is sent to its provider and handled under that provider's privacy terms.
 
 Exported ${israelDate(Date.parse(r.startedAt))} by clalit-mcp ${PACKAGE_VERSION}, export layout ${EXPORT_LAYOUT}; everything here belongs to one member.
 ${r.stopped ? "\n**This export was cut short**: the session ended before it finished. What is here is complete for the files it holds; the rest was not collected.\n" : ""}
 ## How to read this export
 
 - Every JSON file is a record as this client parsed it from the portal's page, wrapped with \`source\`, \`kind\`,
-  \`fetched_at\` (UTC) and \`data\`. Nothing is interpreted: values, units, ranges and flags are the portal's own text.
-- Dates in the records are as the portal shows them (\`dd/MM/yyyy\`); file names carry them as \`yyyy-mm-dd\`.
+  \`fetched_at\` (UTC) and \`data\`. \`result\`, \`referenceRange\` and \`notes\` are the portal's text; \`value\`,
+  \`units\`, \`rangeMin\`, \`rangeMax\` and \`flag\` are parsed from it.
+- Dates in the records are \`dd.MM.yyyy\`, as the portal shows them; file names use \`yyyy-mm-dd\`.
 - Cite the file a fact comes from. Say plainly when something needs a doctor; this is a copy of records, not advice.
 
 ## What is here
 ${has("labs") ? `
-**\`labs/\`** · ${r.folders.labs} files — laboratory results from ${r.fromDate} to ${r.toDate} (the range asked of the
+**\`labs/\`** · ${files(r.folders.labs)} — laboratory results from ${r.fromDate} to ${r.toDate} (the range asked of the
 portal; the portal's own default is far shorter). \`list.json\` is every row of the results list (\`data[]\`: \`date\`,
-\`name\`, \`summary\`, \`hasDetail\`, \`ref\`). \`details/<date>_<id>_<name>.json\` is one result: \`data.analytes[]\` with
-\`name\`, \`result\`, \`units\`, \`referenceRange\`, \`flag\` as displayed (a \`result\` can be text — NEGATIVE, <0.5),
-\`data.notes[]\` the lab's remarks, \`list\` the row it came from.${r.documents ? " `files/<same name>.pdf` is the portal's own PDF of the result where it offers one." : ""}` : ""}
+\`name\` (the lab section), \`doctor\`, \`testNumber\`, \`summary\`, \`hasDetail\`, \`ref\`, and \`refToken\`, the session
+token for \`lab --ref\`, which expires with the session). \`details/<date>_<id>_<name>.json\` is one result:
+\`data.analytes[]\` with \`name\`, \`result\` (the text as shown, unit included: \`113 %\`, \`0.52 Negative\`, \`FEW\`),
+\`value\` (its leading number), \`units\`, \`qualifier\` when present, \`referenceRange\`, \`rangeMin\`/\`rangeMax\` (numbers),
+\`flag\` (\`L\` or \`H\` only), and \`turnaround\`, \`explanation\`, \`compare\` when the page has them; \`data.date\`,
+\`data.time\`, \`data.testNumber\` from the header, \`data.notes[]\` the lab's remarks, \`list\` the row it came from.${r.documents ? " `files/<same name>.pdf` is the portal's own PDF of the result where it offers one." : ""}` : ""}
 ${has("prescriptions") ? `
-**\`prescriptions/\`** · ${r.folders.prescriptions} file — \`list.json\`: prescriptions with their medicines
-(\`prescriptionNo\`, \`prescriberName\`, \`medicines[]\` with \`medicineName\`, \`medicineStartDate\`), expired ones included. A
-prescription says what was prescribed, not what is taken.` : ""}
+**\`prescriptions/\`** · ${files(r.folders.prescriptions)} — \`list.json\`: prescriptions with their medicines
+(\`prescriptionNo\`, \`prescriberName\` when shown, \`medicines[]\` with \`medicineId\`, \`medicineName\`, \`medicineFormName\`,
+\`medicineStartDate\`), expired ones included. A prescription says what was prescribed, not what is taken.` : ""}
 ${has("lab-orders") ? `
-**\`lab-orders/\`** · ${r.folders["lab-orders"]} files — \`list.json\`: referrals for laboratory tests (\`issuanceDate\`,
+**\`lab-orders/\`** · ${files(r.folders["lab-orders"])} — \`list.json\`: referrals for laboratory tests (\`issuanceDate\`,
 \`referer\`, \`validTo\`); \`details/\`: the tests each order lists (\`data.items[]\`).` : ""}
 ${missing.length ? `\nThis export has no ${absent}.\n` : ""}
 ## What is not here

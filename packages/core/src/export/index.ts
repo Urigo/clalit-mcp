@@ -107,6 +107,11 @@ export function shortHash(...parts: string[]): string {
   return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 8);
 }
 
+/** refToken is a session token for `--ref`; it is dead once the session ends, so the archive keeps only `ref`. */
+function withoutToken<T extends { refToken?: string }>({ refToken: _token, ...row }: T): Omit<T, "refToken"> {
+  return row;
+}
+
 function stem(...parts: (string | undefined)[]): string {
   return parts.filter(Boolean).join("_");
 }
@@ -147,7 +152,8 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
     // ---- labs ----
     log("labs");
     const labs = await client.listLabs({ fromDate, toDate });
-    await putJson("labs/list.json", wrap("lab-list", labs, { range: { fromDate, toDate } }));
+    const archived = labs.map(withoutToken);
+    await putJson("labs/list.json", wrap("lab-list", archived, { range: { fromDate, toDate } }));
     log(`  ${labs.length} results listed (${fromDate} – ${toDate})`);
     const seen = new Set<string>();
     for (let i = 0; i < labs.length; i++) {
@@ -164,7 +170,7 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
         try {
           await sleep(pace);
           const detail = await client.getLabResult(item.refToken);
-          await putJson(rel, wrap("lab-result", detail, { list: item }));
+          await putJson(rel, wrap("lab-result", detail, { list: archived[i] }));
         } catch (e) {
           if (e instanceof ReauthenticationRequired) throw e;
           problem(rel, e);
@@ -208,7 +214,7 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
     try {
       await sleep(pace);
       const orders = await client.listLabOrders();
-      await putJson("lab-orders/list.json", wrap("lab-order-list", orders));
+      await putJson("lab-orders/list.json", wrap("lab-order-list", orders.map(withoutToken)));
       log(`  ${orders.length} lab orders`);
       for (const order of orders) {
         if (!order.hasDetail || !order.refToken) continue;
@@ -219,7 +225,7 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
         }
         try {
           await sleep(pace);
-          await putJson(rel, wrap("lab-order", await client.getLabOrder(order.refToken), { list: order }));
+          await putJson(rel, wrap("lab-order", await client.getLabOrder(order.refToken), { list: withoutToken(order) }));
         } catch (e) {
           if (e instanceof ReauthenticationRequired) throw e;
           problem(rel, e);
@@ -268,8 +274,8 @@ ${r.stopped ? "\n**This export was cut short**: the session ended before it fini
 ${has("labs") ? `
 **\`labs/\`** · ${files(r.folders.labs)} — laboratory results from ${r.fromDate} to ${r.toDate} (the range asked of the
 portal; the portal's own default is far shorter). \`list.json\` is every row of the results list (\`data[]\`: \`date\`,
-\`name\` (the lab section), \`doctor\`, \`testNumber\`, \`summary\`, \`hasDetail\`, \`ref\`, and \`refToken\`, the session
-token for \`lab --ref\`, which expires with the session). \`details/<date>_<id>_<name>.json\` is one result:
+\`name\` (the lab section), \`doctor\`, \`testNumber\`, \`summary\`, \`hasDetail\`, \`ref\`).
+\`details/<date>_<id>_<name>.json\` is one result:
 \`data.analytes[]\` with \`name\`, \`result\` (the text as shown, unit included: \`113 %\`, \`0.52 Negative\`, \`FEW\`),
 \`value\` (its leading number), \`units\`, \`qualifier\` when present, \`referenceRange\`, \`rangeMin\`/\`rangeMax\` (numbers),
 \`flag\` (\`L\` or \`H\` only), and \`turnaround\`, \`explanation\`, \`compare\` when the page has them; \`data.date\`,

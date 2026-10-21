@@ -88,6 +88,14 @@ describe("exportAll", () => {
     expect(names).toContain("prescriptions/list.json");
     expect(names).toContain("lab-orders/list.json");
     expect(names.filter((n) => n.startsWith("lab-orders/details/"))).toHaveLength(orders.filter((o) => o.hasDetail).length);
+    // The session token stays out of the archive for lab orders too.
+    const listedOrders = sink.json("lab-orders/list.json").data as Record<string, unknown>[];
+    expect(listedOrders).toHaveLength(orders.length);
+    for (const row of listedOrders) expect(row).not.toHaveProperty("refToken");
+    for (const n of names.filter((n) => n.startsWith("lab-orders/details/"))) {
+      expect(sink.json(n).list).toHaveProperty("ref");
+      expect(sink.json(n).list).not.toHaveProperty("refToken");
+    }
     for (const root of ["README.md", "export-errors.json", "CLAUDE.md", "AGENTS.md"]) expect(names).toContain(root);
 
     // File names: the list date as yyyy-mm-dd, a stable short id from the opaque ref, the test's name.
@@ -98,6 +106,14 @@ describe("exportAll", () => {
     expect(rec.data.analytes[0]).toMatchObject({ name: "PT-INR", result: "0.91" });
     expect(rec.data.analytes[1]).toMatchObject({ name: "PT %", result: "113 %", units: "%" });
     expect(rec.list.ref).toEqual(labs[0]!.ref);
+    // The session token stays out of the archive: rows keep only the opaque `ref`.
+    expect(rec.list).not.toHaveProperty("refToken");
+    const listed = sink.json("labs/list.json").data as Record<string, unknown>[];
+    expect(listed).toHaveLength(labs.length);
+    for (const row of listed) {
+      expect(row).toHaveProperty("ref");
+      expect(row).not.toHaveProperty("refToken");
+    }
     expect(sink.json("export-errors.json")).toEqual([]);
     const readme = sink.files.get("README.md") as string;
     expect(readme).toContain("export layout 1");

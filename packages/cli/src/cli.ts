@@ -241,7 +241,7 @@ export async function runCli(args: string[]): Promise<number> {
           log: (line) => console.log(line),
         });
         const width = Math.max(0, ...Object.keys(report.folders).map((k) => k.length));
-        for (const [folder, n] of Object.entries(report.folders).sort()) console.log(`  ${folder.padEnd(width)}  ${String(n).padStart(4)} files`);
+        for (const [folder, n] of Object.entries(report.folders).sort()) console.log(`  ${folder.padEnd(width)}  ${String(n).padStart(4)} ${n === 1 ? "file" : "files"}`);
         for (const p of report.problems) console.log(`  problem: ${p.where}: ${p.what}`);
         console.log(`${report.problems.length ? report.problems.length + " problems; " : ""}export in ${dir}`);
         return report.stopped ? 3 : 0;

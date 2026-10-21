@@ -53,10 +53,23 @@ npx tsx packages/cli/src/main.ts lab-document --ref <token> --out result.pdf
 npx tsx packages/cli/src/main.ts prescriptions --json
 npx tsx packages/cli/src/main.ts lab-orders --json
 npx tsx packages/cli/src/main.ts lab-order --ref <token-from-lab-orders> --json
+npx tsx packages/cli/src/main.ts export --out ~/health
 npx tsx packages/cli/src/main.ts help
 ```
 
 `login` opens a loopback browser page for ID, CAPTCHA, and SMS OTP. See [docs/LIVE-VERIFY.md](docs/LIVE-VERIFY.md).
+
+## Keep a copy of everything: `export`
+
+```sh
+npx tsx packages/cli/src/main.ts export                 # ./clalit-export-<today>/: labs (every result and its PDF), prescriptions, lab orders
+npx tsx packages/cli/src/main.ts export --out ~/health  # under that directory; --no-documents skips the PDFs
+```
+
+One folder: labs (one JSON per result, plus its PDF), prescriptions, lab orders, and a root `README.md` that describes
+each folder for an AI assistant (layout in [docs/CLI.md](docs/CLI.md)). `--from`/`--to` (`dd.MM.yyyy`) filter labs only, default 01.01.1990 to today; a rerun skips what it already has.
+Layout modeled on [Health Records Export for Maccabi](https://github.com/RoniRachmani/health-records-export-for-maccabi); [liberate-labs](https://github.com/Urigo/liberate-labs) can load it into SQLite.
+The folder is not encrypted, and anything you open in an AI app is sent to that provider (see the privacy note at the top).
 
 ## MCP
 

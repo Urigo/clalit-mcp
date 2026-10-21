@@ -95,7 +95,8 @@ describe("exportAll", () => {
     expect(detail).toMatch(/^labs\/details\/\d{4}-\d{2}-\d{2}_[0-9a-f]{8}_\S+\.json$/);
     const rec = sink.json(detail);
     expect(rec).toMatchObject({ source: "clalit-mcp", kind: "lab-result", fetched_at: "2026-10-14T10:00:00.000Z" });
-    expect(rec.data.analytes[0]).toMatchObject({ name: "המוגלובין", result: "14.2", units: "g/dL" });
+    expect(rec.data.analytes[0]).toMatchObject({ name: "PT-INR", result: "0.91" });
+    expect(rec.data.analytes[1]).toMatchObject({ name: "PT %", result: "113 %", units: "%" });
     expect(rec.list.ref).toEqual(labs[0]!.ref);
     expect(sink.json("export-errors.json")).toEqual([]);
     const readme = sink.files.get("README.md") as string;

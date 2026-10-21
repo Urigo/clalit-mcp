@@ -41,7 +41,7 @@ export interface BrowserLoginOptions {
   /** Where to start; the portal's own login page unless given. */
   url?: string;
   record?: boolean;
-  /** Leave the browser window open afterwards. */
+  /** Leave the browser window open afterwards (the CLI exits either way). */
   keepOpen?: boolean;
   /** How long to wait for the sign-in (default 15 minutes). */
   ttlMs?: number;
@@ -137,7 +137,13 @@ export async function runBrowserLogin(options: BrowserLoginOptions = {}): Promis
     }
   } finally {
     stdin.close();
-    if (!options.keepOpen) page.close();
+    if (options.keepOpen) {
+      // Let go of the browser rather than wait for it: the window stays, the CLI exits.
+      page.detach();
+      console.error("The browser window stays open; close it yourself when you are done.");
+    } else {
+      page.close();
+    }
   }
 }
 

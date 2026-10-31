@@ -1,4 +1,13 @@
-import { connect, decodeLabOrderRef, decodeLabRef, exportAll, exportName } from "@clalit/core";
+import {
+  connect,
+  decodeDocumentRef,
+  decodeLabOrderRef,
+  decodeLabRef,
+  documentSource,
+  DOCUMENT_SOURCE_IDS,
+  exportAll,
+  exportName,
+} from "@clalit/core";
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { help } from "./commands.js";
@@ -234,6 +243,44 @@ export async function runCli(args: string[]): Promise<number> {
         return 0;
       } catch (err) {
         console.error(err instanceof Error ? err.message : "lab-order failed");
+        return 1;
+      }
+    }
+    case "documents": {
+      const source = flag(rest, "source");
+      if (!source || !documentSource(source)) {
+        console.error(`Usage: clalit-mcp documents --source (${DOCUMENT_SOURCE_IDS.join("|")}) [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--json]`);
+        return 2;
+      }
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const data = await client.listDocuments(source, { fromDate: flag(rest, "from"), toDate: flag(rest, "to") });
+        if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
+        else for (const row of data) console.log(`${row.date ?? ""}\t${row.details.join("\t")}\t${row.refToken}`);
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "documents failed");
+        return 1;
+      }
+    }
+    case "document": {
+      const ref = flag(rest, "ref");
+      const out = flag(rest, "out");
+      if (!ref || !out) {
+        console.error("Usage: clalit-mcp document --ref TOKEN --out FILE");
+        return 2;
+      }
+      decodeDocumentRef(ref);
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const doc = await client.getDocument(ref);
+        await writeFile(out, doc.bytes);
+        console.log(`Wrote ${out} (${doc.bytes.byteLength} bytes)`);
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "document failed");
         return 1;
       }
     }

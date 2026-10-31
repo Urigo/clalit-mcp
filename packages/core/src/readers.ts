@@ -41,6 +41,18 @@ import {
   type PrescriptionIssueStatusRequest,
   type PrescriptionListItem,
 } from "./prescriptions/index.js";
+import {
+  decodeDocumentRef,
+  documentSource,
+  encodeDocumentRef,
+  parseDocumentsListHtml,
+  selectOptions,
+  type ClalitDocument,
+  type DocumentListItem,
+  type DocumentRef,
+  type ListDocumentsOptions,
+} from "./documents/index.js";
+import { assertPdfBytes, filenameFromContentDisposition } from "./labs/document.js";
 import type { ClalitTransport } from "./transport.js";
 import { readBytes, readText } from "./transport.js";
 import { buildPostBackBody, extractWebFormsState } from "./webforms.js";
@@ -360,6 +372,126 @@ export class ClalitReaders {
     const html = await readText(response);
     return parseLabOrderDetailHtml(html, ref);
   }
+
+  /**
+   * listDocuments — GET a document source's page, POST its date-range search
+   * (once per dropdown option for fan-out sources), parse data-actionurl rows.
+   */
+  async listDocuments(sourceId: string, options: ListDocumentsOptions = {}): Promise<DocumentListItem[]> {
+    this.transport.assertNotIdleExpired();
+    const source = documentSource(sourceId);
+    if (!source) throw new ParseError("UNKNOWN_SOURCE", "Unknown document source.");
+    const listUrl = PORTAL_ORIGIN + source.path;
+    const page = await readText(await this.transport.request(listUrl));
+    const search = source.search;
+    if (!search) return parseDocumentsListHtml(page, source.id);
+
+    const fanOut = search.fanOutSelect ? selectOptions(page, search.fanOutSelect) : [undefined];
+    const from = options.fromDate ?? search.minDate;
+    const to = options.toDate ?? todayPortalDate();
+
+    const collected: DocumentListItem[] = [];
+    const seen = new Set<string>();
+    for (const option of fanOut) {
+      const searchOnce = async (rangeFrom: string, rangeTo: string): Promise<DocumentListItem[]> => {
+        const fields = { ...search.fields, [search.fromField]: rangeFrom, [search.toField]: rangeTo };
+        const html = await readText(await this.transport.request(listUrl));
+        const state = extractWebFormsState(html);
+        const cleanState = { ...state, hidden: omitFamilySliderFields(state.hidden) };
+        const response = await this.transport.request(listUrl, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: buildPostBackBody(
+            cleanState,
+            option && search.fanOutSelect ? { ...fields, [search.fanOutSelect]: option[0] } : fields,
+            search.submit,
+            "",
+          ),
+        });
+        return parseDocumentsListHtml(await readText(response), source.id);
+      };
+      for (const item of await searchSplitting(searchOnce, from, to)) {
+        if (seen.has(item.refToken)) continue;
+        seen.add(item.refToken);
+        // The hospital is the search, not a grid column; keep it with the row.
+        collected.push(option ? { ...item, details: [option[1], ...item.details] } : item);
+      }
+    }
+    return collected;
+  }
+
+  /**
+   * getDocument — GET the row's action URL (selects the document server-side),
+   * then GET the source's PDF stream. Refs only from listDocuments.
+   */
+  async getDocument(refOrToken: DocumentRef | string): Promise<ClalitDocument> {
+    this.transport.assertNotIdleExpired();
+    // Decode even a passed ref: it validates the source and action URL.
+    const ref = decodeDocumentRef(
+      typeof refOrToken === "string" ? refOrToken : encodeDocumentRef(refOrToken),
+    );
+    const source = documentSource(ref.source)!;
+    const exists = await this.transport.request(PORTAL_ORIGIN + ref.actionUrl, {
+      allowLoginHtml: true,
+      ...(ref.actionData
+        ? { method: "POST", headers: { "content-type": "application/json; charset=utf-8" }, body: ref.actionData }
+        : {}),
+    });
+    await exists.arrayBuffer();
+    if (exists.status === 404) throw new UpstreamError("NO_DOCUMENT", 404);
+    if (!exists.ok) throw new UpstreamError("DOCUMENT_CHECK_FAILED", exists.status);
+
+    const sep = source.pdfPath.includes("?") ? "&" : "?";
+    const pdf = await this.transport.request(`${PORTAL_ORIGIN}${source.pdfPath}${sep}v=${Date.now()}`, {
+      allowLoginHtml: true,
+    });
+    const bytes = await readBytes(pdf);
+    assertPdfBytes(bytes);
+    return {
+      ref,
+      contentType: pdf.headers.get("content-type") || "application/pdf",
+      filename: filenameFromContentDisposition(pdf.headers.get("content-disposition"), `clalit-${ref.source}.pdf`),
+      bytes,
+    };
+  }
+}
+
+/**
+ * The document grids show only their first page (10 rows, newest first) and
+ * the pager is not walked, so a search that fills a page is split in two
+ * halves until every half fits. Splitting stops at one day.
+ */
+export const DOCUMENT_PAGE_ROWS = 10;
+
+async function searchSplitting(
+  searchOnce: (from: string, to: string) => Promise<DocumentListItem[]>,
+  from: string,
+  to: string,
+): Promise<DocumentListItem[]> {
+  const rows = await searchOnce(from, to);
+  const start = parsePortalDate(from);
+  const end = parsePortalDate(to);
+  if (rows.length < DOCUMENT_PAGE_ROWS || start === undefined || end === undefined || end <= start) return rows;
+  const day = 86_400_000;
+  const mid = start + Math.floor((end - start) / day / 2) * day;
+  const older = await searchSplitting(searchOnce, from, formatPortalDate(mid));
+  const newer = await searchSplitting(searchOnce, formatPortalDate(mid + day), to);
+  return [...newer, ...older];
+}
+
+function parsePortalDate(value: string): number | undefined {
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(value);
+  return m ? Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : undefined;
+}
+
+function formatPortalDate(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.${d.getUTCFullYear()}`;
+}
+
+function todayPortalDate(): string {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
 }
 
 /** Explicit refusal helper for any future family-member API. */

@@ -74,6 +74,20 @@ export const COMMANDS: Record<string, Command> = {
     options: ["ref", "json"],
     notes: "No PDF/print download.",
   },
+  documents: {
+    usage: "documents --source (visit_summaries|hospital_summaries|medical_approvals|form17) [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--json]",
+    summary: "List own PDF documents from one portal source.",
+    description:
+      "Searches one documents page for the authenticated owner: visit_summaries (סיכומי ביקור רפואה יועצת), hospital_summaries (סיכומים מבתי חולים, searched per hospital), medical_approvals (אישורים רפואיים) or form17 (התחייבויות, last year only). The whole date range the portal allows is searched unless --from/--to say otherwise; a search that fills the portal's 10-row page is split until every row is found.",
+    options: ["source", "from", "to", "json"],
+    notes: "Rows carry an opaque ref token for `document`. Never invent action URLs.",
+  },
+  document: {
+    usage: "document --ref TOKEN --out FILE",
+    summary: "Download one document's PDF.",
+    description: "Selects the document through the row's own portal action URL, then streams the source's PDF, using a ref token from `documents`.",
+    options: ["ref", "out"],
+  },
   export: {
     usage: "export [--out DIR] [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--no-documents] [--current-only]",
     summary: "Save everything this client can read into one folder.",
@@ -93,7 +107,7 @@ export const COMMANDS: Record<string, Command> = {
     usage: "mcp",
     summary: "Run the stdio MCP server.",
     description:
-      "Exposes list_labs, get_lab_result, get_lab_document, list_prescriptions, get_prescription_issue_status, list_lab_orders, get_lab_order for local agents.",
+      "Exposes list_labs, get_lab_result, get_lab_document, list_prescriptions, get_prescription_issue_status, list_lab_orders, get_lab_order, list_documents, get_document, plus clalit_login, clalit_session_status and clalit_logout. While it runs it keeps the Clalit session alive and serves its own sign-in page (see docs/MCP.md).",
     options: [],
   },
   help: {

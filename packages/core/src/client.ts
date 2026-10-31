@@ -1,3 +1,5 @@
+import { PATHS, PORTAL_ORIGIN } from "./constants.js";
+import { ReauthenticationRequired } from "./errors.js";
 import { ClalitAuth, type LoginOptions, type LoginPrompts } from "./auth.js";
 import { ClalitReaders } from "./readers.js";
 import type { ClalitSession } from "./session.js";
@@ -6,6 +8,11 @@ import { ClalitTransport } from "./transport.js";
 export type ClalitClient = ClalitReaders & {
   exportSession(): Promise<ClalitSession>;
   refreshSession(): Promise<void>;
+  /**
+   * Opens the labs list, a page only a signed-in session gets, and throws
+   * ReauthenticationRequired when the portal sends it to sign-in instead.
+   */
+  checkSession(): Promise<void>;
 };
 
 function wrapClient(transport: ClalitTransport, auth: ClalitAuth): ClalitClient {
@@ -13,6 +20,11 @@ function wrapClient(transport: ClalitTransport, auth: ClalitAuth): ClalitClient 
   return Object.assign(readers, {
     exportSession: () => transport.exportSession(),
     refreshSession: () => auth.refreshSession(),
+    checkSession: async () => {
+      const res = await transport.request(PORTAL_ORIGIN + PATHS.labsList);
+      await res.arrayBuffer();
+      if (!res.ok) throw new ReauthenticationRequired(res.status);
+    },
   });
 }
 

@@ -35,7 +35,7 @@ export interface ExportClient {
   getLabOrder(refOrToken: string): Promise<LabOrderDetail>;
   listDocuments(sourceId: string, options?: { fromDate?: string; toDate?: string }): Promise<DocumentListItem[]>;
   getDocument(refOrToken: string): Promise<ClalitDocument>;
-  listRecords(sourceId: string, options?: { fromDate?: string; toDate?: string }): Promise<RecordRow[]>;
+  listRecords(sourceId: string, options?: { fromDate?: string; toDate?: string; onPage?: (rows: RecordRow[]) => Promise<void> }): Promise<RecordRow[]>;
   getRecordDocument(refOrToken: string): Promise<RecordDocument>;
   getHospitalLabResult(row: { link?: string; context?: { select: string; value: string }; testNumber?: string; date?: string; section?: string }): Promise<LabResultDetail>;
 }
@@ -331,47 +331,44 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
       const folder = `records/${source.id}`;
       log(source.id);
       let rows: RecordRow[];
+      // Rows that link to a result page (hospital labs) are read as each page of the list is rendered:
+      // the portal re-issues those links on every render, so they are good only right then.
+      let detailsDone = 0;
+      const onPage =
+        source.detail === "hospital_lab"
+          ? async (pageRows: RecordRow[]) => {
+              for (const row of pageRows) {
+                const link = row.links?.find((l) => /HospitalsLabTestDetails\.aspx/i.test(l));
+                if (!link) continue;
+                const testNumber = row.fields["מספר הבדיקה"] ?? "";
+                const name = stem(isoDate(row.date), shortHash(row.context?.value ?? "", row.date ?? "", testNumber, row.fields["תחום המעבדה"] ?? ""), safeTitle(Object.values(row.fields).slice(0, 3).join("-")));
+                const rel = `${folder}/details/${name}.json`;
+                if (await sink.exists(rel)) {
+                  count(rel);
+                  continue;
+                }
+                try {
+                  await sleep(pace);
+                  const detail = await client.getHospitalLabResult({ link });
+                  await putJson(rel, wrap("hospital-lab-result", detail, { list: withoutToken(row) }));
+                  detailsDone++;
+                } catch (e) {
+                  if (e instanceof ReauthenticationRequired) throw e;
+                  problem(rel, e);
+                }
+              }
+              if (detailsDone) log(`  ${detailsDone} results read so far`);
+            }
+          : undefined;
       try {
         await sleep(pace);
-        rows = await client.listRecords(source.id);
+        rows = await client.listRecords(source.id, onPage ? { onPage } : {});
         if (!(await putList(`${folder}/list.json`, rows, wrap("record-list", rows.map(withoutToken), { title: source.title, ...(source.notes ? { notes: source.notes } : {}) })))) continue;
         log(`  ${rows.length} ${rows.length === 1 ? "row" : "rows"}`);
       } catch (e) {
         if (e instanceof ReauthenticationRequired) throw e;
         problem(`${folder}/list.json`, e);
         continue;
-      }
-      // Rows that link to a result page (hospital labs): one detail file per row, like labs/details.
-      if (source.detail === "hospital_lab") {
-        const linked = rows.filter((r) => r.links?.some((l) => /HospitalsLabTestDetails\.aspx/i.test(l)));
-        const seenDetails = new Set<string>();
-        for (let i = 0; i < linked.length; i++) {
-          const row = linked[i]!;
-          const link = row.links!.find((l) => /HospitalsLabTestDetails\.aspx/i.test(l))!;
-          let name = stem(isoDate(row.date), shortHash(link), safeTitle(Object.values(row.fields).slice(0, 3).join("-")));
-          if (seenDetails.has(name)) name += "-" + i;
-          seenDetails.add(name);
-          const rel = `${folder}/details/${name}.json`;
-          if (await sink.exists(rel)) {
-            count(rel);
-            continue;
-          }
-          try {
-            await sleep(pace);
-            const detail = await client.getHospitalLabResult({
-              link,
-              context: row.context,
-              testNumber: row.fields["מספר הבדיקה"],
-              date: row.date,
-              section: row.fields["תחום המעבדה"],
-            });
-            await putJson(rel, wrap("hospital-lab-result", detail, { list: withoutToken(row) }));
-          } catch (e) {
-            if (e instanceof ReauthenticationRequired) throw e;
-            problem(rel, e);
-          }
-          if ((i + 1) % 10 === 0 || i === linked.length - 1) log(`  ${i + 1}/${linked.length} results`);
-        }
       }
       if (!documents) continue;
       const seenPdfs = new Set<string>();

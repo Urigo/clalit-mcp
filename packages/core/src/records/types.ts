@@ -35,6 +35,12 @@ export interface ListRecordsOptions {
   fromDate?: string;
   /** Inclusive to-date (`dd.MM.yyyy`). Defaults to today. */
   toDate?: string;
+  /**
+   * Called with each page of rows as soon as the portal has rendered it, before the next page or
+   * hospital is asked for. Links in the rows are valid only until the list is rendered again, so
+   * anything that follows them (a result page) has to happen here.
+   */
+  onPage?: (rows: RecordRow[]) => Promise<void>;
 }
 
 export interface RecordDocument {

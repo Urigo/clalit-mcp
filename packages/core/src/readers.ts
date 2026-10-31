@@ -500,7 +500,7 @@ export class ClalitReaders {
     const parse = (html: string) => parseRecordGridHtml(html, source.id);
     const page = await readText(await this.transport.request(url));
     const search = source.search;
-    if (!search) return this.#walkRecordPager(url, source, page, {}, parse);
+    if (!search) return this.#walkRecordPager(url, source, page, {}, parse, options.onPage);
 
     const fanOut = search.fanOutSelect ? selectOptions(page, search.fanOutSelect) : [undefined];
     const from = options.fromDate ?? search.minDate;
@@ -512,6 +512,12 @@ export class ClalitReaders {
         ...search.fields,
         ...(option && search.fanOutSelect ? { [search.fanOutSelect]: option[0] } : {}),
       };
+      // The hospital is the search, not a grid column; keep it with the row, and keep which search it was.
+      const decorate = (row: RecordRow): RecordRow =>
+        option && search.fanOutSelect
+          ? { ...row, fields: { "בית חולים": option[1], ...row.fields }, cells: [option[1], ...row.cells], context: { select: search.fanOutSelect, value: option[0] } }
+          : row;
+      const onPage = options.onPage ? async (rows: RecordRow[]) => options.onPage!(rows.map(decorate)) : undefined;
       const searchOnce = async (rangeFrom: string, rangeTo: string): Promise<RecordRow[]> => {
         const fields = { ...fixed, [search.fromField]: rangeFrom, [search.toField]: rangeTo };
         const fresh = await readText(await this.transport.request(url));
@@ -523,7 +529,7 @@ export class ClalitReaders {
           body: buildPostBackBody(cleanState, fields, search.submit, ""),
         });
         const html = await readText(response);
-        return this.#walkRecordPager(url, source, html, fields, parse);
+        return this.#walkRecordPager(url, source, html, fields, parse, onPage);
       };
       const rows = source.pagerLinkPrefix
         ? await searchOnce(from, to)
@@ -532,12 +538,7 @@ export class ClalitReaders {
         const key = JSON.stringify([row.cells, row.ref?.actionUrl ?? ""]);
         if (seen.has(key)) continue;
         seen.add(key);
-        // The hospital is the search, not a grid column; keep it with the row, and keep which search it was.
-        collected.push(
-          option && search.fanOutSelect
-            ? { ...row, fields: { "בית חולים": option[1], ...row.fields }, cells: [option[1], ...row.cells], context: { select: search.fanOutSelect, value: option[0] } }
-            : row,
-        );
+        collected.push(decorate(row));
       }
     }
     return collected;
@@ -550,8 +551,10 @@ export class ClalitReaders {
     firstHtml: string,
     fields: Record<string, string>,
     parse: (html: string) => RecordRow[],
+    onPage?: (rows: RecordRow[]) => Promise<void>,
   ): Promise<RecordRow[]> {
     const rows = parse(firstHtml);
+    if (onPage) await onPage(rows);
     let html = firstHtml;
     let current = 1;
     for (let pages = 1; pages < LABS_LIST_MAX_PAGES; pages++) {
@@ -565,7 +568,9 @@ export class ClalitReaders {
         body: buildPostBackBody(cleanState, fields, `${source.pagerLinkPrefix}${next}`, ""),
       });
       html = await readText(response);
-      rows.push(...parse(html));
+      const pageRows = parse(html);
+      if (onPage) await onPage(pageRows);
+      rows.push(...pageRows);
       current = next;
     }
     return rows;

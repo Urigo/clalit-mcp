@@ -87,10 +87,12 @@ function fakeClient(opts: { failDocument?: boolean; noDocument?: boolean; endSes
       if (opts.failDocument) throw new Error("The Clalit request could not be completed (network error).");
       return { ref: decodeDocumentRef(token), contentType: "application/pdf", filename: "visit.pdf", bytes: new Uint8Array(Buffer.from("%PDF-1.4 visit")) };
     },
-    async listRecords(sourceId) {
+    async listRecords(sourceId, options) {
       calls.push("listRecords " + sourceId);
       if (sourceId === "hospital_labs") {
-        return [{ source: sourceId, date: "02.09.2026", fields: { "בית חולים": "בית חולים לדוגמה", תאריך: "02.09.2026", "תחום המעבדה": "המטולוגיה", "מספר הבדיקה": "100" }, cells: ["בית חולים לדוגמה", "02.09.2026", "המטולוגיה", "100"], links: ["/OnlineWeb/Services/HospitalsLabs/HospitalsLabTestDetails.aspx?s=a&d=b&h=c"], context: { select: "x", value: "1" } }];
+        const rows = [{ source: sourceId, date: "02.09.2026", fields: { "בית חולים": "בית חולים לדוגמה", תאריך: "02.09.2026", "תחום המעבדה": "המטולוגיה", "מספר הבדיקה": "100" }, cells: ["בית חולים לדוגמה", "02.09.2026", "המטולוגיה", "100"], links: ["/OnlineWeb/Services/HospitalsLabs/HospitalsLabTestDetails.aspx?s=a&d=b&h=c"], context: { select: "x", value: "1" } }];
+        if (options?.onPage) await options.onPage(rows);
+        return rows;
       }
       if (sourceId !== "imaging_clinics") return [];
       const ref = { source: sourceId, actionUrl: "/OnlineWeb/api/Rentgen/GetPDFDocument/1/1000" };
@@ -150,7 +152,7 @@ describe("exportAll", () => {
     const hospitalDetails = names.filter((n) => n.startsWith("records/hospital_labs/details/"));
     expect(hospitalDetails).toHaveLength(1);
     expect(sink.json(hospitalDetails[0]!).data.analytes[0]).toMatchObject({ name: "PT-INR" });
-    expect(calls).toContain("getHospitalLabResult 100");
+    expect(calls).toContain("getHospitalLabResult ");
     expect(report.folders.records).toBe(17);
 
     // File names: the list date as yyyy-mm-dd, a stable short id from the opaque ref, the test's name.

@@ -110,7 +110,9 @@ export const RECORD_SOURCES: readonly RecordSource[] = [
       minDate: "01.01.2000",
       submit: `${BODY}btnShow$lnkSubButton`,
     },
-    pdfPath: "/OnlineWeb/Services/Rentgen/RentgenPDFHandler.ashx?Print=false",
+    // The web page opens the selected report through RentgenView.aspx, which answers with the PDF itself;
+    // RentgenPDFHandler.ashx is the app's route and answers HTML here.
+    pdfPath: "/OnlineWeb/Services/Rentgen/RentgenView.aspx",
     notes: "Exams marked sensitive are not shown; the images themselves are not fetched, only the report.",
   },
   {
@@ -125,7 +127,7 @@ export const RECORD_SOURCES: readonly RecordSource[] = [
       submit: `${BODY}btnShow$lnkSubButton`,
       fanOutSelect: `${BODY}ddlHospitalName`,
     },
-    pdfPath: "/OnlineWeb/ServicesForAll/HospitalsVisits/RentgenPDFHandler.ashx?Print=false",
+    pdfPath: "/OnlineWeb/ServicesForAll/HospitalsVisits/RentgenView.aspx",
   },
   {
     id: "imaging_external",

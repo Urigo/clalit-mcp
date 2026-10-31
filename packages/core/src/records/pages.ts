@@ -15,6 +15,16 @@ function cleanText(raw: string): string {
   return raw.replace(/\s+/g, " ").trim();
 }
 
+/** The few entities an inline script attribute carries (`ד&quot;ר`). */
+function decodeEntities(raw: string): string {
+  return raw
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
 /**
  * The home page lists upcoming visits as `PopUpVisit('<doctor>', '<member name>',
  * '<member id>', '<visit guid>', '<service>', '<dd.MM.yyyy>', '<HH:mm>')` calls.
@@ -27,7 +37,7 @@ export function parseAppointmentsHtml(html: string): RecordRow[] {
   const seen = new Set<string>();
   const re = /PopUpVisit\(\s*'((?:[^'\\]|\\.)*)'\s*,\s*'(?:[^'\\]|\\.)*'\s*,\s*'(?:[^'\\]|\\.)*'\s*,\s*'(?:[^'\\]|\\.)*'\s*,\s*'((?:[^'\\]|\\.)*)'\s*,\s*'((?:[^'\\]|\\.)*)'\s*,\s*'((?:[^'\\]|\\.)*)'\s*\)/g;
   for (const m of html.matchAll(re)) {
-    const [, doctor, service, date, time] = m.map((v) => cleanText(v ?? "").replace(/\\'/g, "'"));
+    const [, doctor, service, date, time] = m.map((v) => decodeEntities(cleanText(v ?? "").replace(/\\'/g, "'")));
     const key = `${date}|${time}|${service}|${doctor}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -103,14 +113,25 @@ export function parseApiJson(text: string, sourceId: string): RecordRow[] {
       break;
     }
   }
-  const items: unknown[] = Array.isArray(value)
-    ? value
-    : value && typeof value === "object"
-      ? // Envelopes: { data: [...] } / { Data: [...] } / { items: [...] }, else the object itself
-        (["data", "Data", "items", "Items", "result", "Result"].map((k) => (value as Record<string, unknown>)[k]).find(Array.isArray) as
-          | unknown[]
-          | undefined) ?? [value]
-      : [];
+  // Envelopes: { Results: "[…]", Status: "Success" } / { data: [...] } — the list may itself be a JSON string.
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const env = value as Record<string, unknown>;
+    for (const k of ["Results", "results", "Result", "result", "Data", "data", "Items", "items"]) {
+      let inner = env[k];
+      if (typeof inner === "string") {
+        try {
+          inner = JSON.parse(inner);
+        } catch {
+          continue;
+        }
+      }
+      if (Array.isArray(inner)) {
+        value = inner;
+        break;
+      }
+    }
+  }
+  const items: unknown[] = Array.isArray(value) ? value : value && typeof value === "object" ? [value] : [];
   const rows: RecordRow[] = [];
   for (const item of items) {
     if (!item || typeof item !== "object") continue;

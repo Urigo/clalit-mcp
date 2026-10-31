@@ -488,7 +488,10 @@ export class ClalitReaders {
     if (!source) throw new ParseError("UNKNOWN_SOURCE", "Unknown record source.");
     if (source.kind === "referrals" || source.id === REFERRALS_SOURCE_ID) return this.#listReferrals(options);
     if (source.kind === "api") {
-      const res = await this.transport.request(PORTAL_ORIGIN + source.api!, { headers: { accept: "application/json, text/plain, */*" } });
+      const res = await this.transport.request(PORTAL_ORIGIN + source.api!, {
+        headers: { accept: "application/json, text/plain, */*", ...(source.apiMethod === "POST" ? { "content-type": "application/json" } : {}) },
+        ...(source.apiMethod === "POST" ? { method: "POST", body: source.apiBody ?? "null" } : {}),
+      });
       return parseApiJson(await readText(res), source.id);
     }
     const url = PORTAL_ORIGIN + source.path;

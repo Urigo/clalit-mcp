@@ -164,7 +164,7 @@ describe("pages of their own shape", () => {
 <div onclick="javascript:PopUpVisit('','ישראל ישראלי','000000000','66666666-7777-8888-9999-000000000000','בדיקת דם','05.11.2026','08:00');"></div>`;
     const rows = parseAppointmentsHtml(html);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ source: "appointments", date: "02.11.2026", fields: { תאריך: "02.11.2026", שעה: "11:20", שירות: "אולטרסאונד בטן" } });
+    expect(rows[0]).toMatchObject({ source: "appointments", date: "02.11.2026", fields: { תאריך: "02.11.2026", שעה: "11:20", "רופא/ה": 'ד"ר פלונית', שירות: "אולטרסאונד בטן" } });
     expect(JSON.stringify(rows)).not.toContain("000000000");
     expect(JSON.stringify(rows)).not.toContain("ישראל ישראלי");
     expect(rows[1]!.fields).not.toHaveProperty("רופא/ה");
@@ -192,6 +192,11 @@ describe("pages of their own shape", () => {
     expect(rows[0]!.fields).not.toHaveProperty("ReportSource");
     expect(rows[1]!.date).toBe("15.10.2024");
     expect(parseApiJson(JSON.stringify({ Status: 10206 }), "blood_type")).toEqual([{ source: "blood_type", fields: { Status: "10206" }, cells: ["10206"] }]);
+    // The vaccinations endpoint answers an envelope whose Results is itself a JSON string.
+    const envelope = JSON.stringify({ Results: JSON.stringify([{ RecordId: "1", ExaminationName: "VZV", ExaminationDate: "2026-10-28T10:59:00+02:00", GilYomiMonth: "78.7" }]), Status: "Success" });
+    expect(parseApiJson(envelope, "vaccinations")).toEqual([
+      { source: "vaccinations", date: "28.10.2026", fields: { RecordId: "1", ExaminationName: "VZV", ExaminationDate: "28.10.2026", GilYomiMonth: "78.7" }, cells: ["1", "VZV", "28.10.2026", "78.7"] },
+    ]);
     expect(parseApiJson("null", "blood_type")).toEqual([]);
   });
 

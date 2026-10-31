@@ -36,8 +36,11 @@ export interface RecordSource {
    * (the Measures accordion), and `api` (a JSON endpoint behind a React page, at `api`).
    */
   kind?: "grid" | "referrals" | "appointments" | "recommendations" | "api";
-  /** For `kind: "api"`: the JSON endpoint the page's own script reads. GET only. */
+  /** For `kind: "api"`: the JSON endpoint the page's own script reads. */
   api?: string;
+  /** For `kind: "api"`: how the page's script calls it. Default GET; `"POST"` sends `apiBody` as JSON — still a read. */
+  apiMethod?: "GET" | "POST";
+  apiBody?: string;
   /** Rows link to a detail page of this shape (a lab result); `export` reads it. */
   detail?: "hospital_lab";
 }
@@ -219,6 +222,9 @@ export const PAGE_SOURCES: readonly RecordSource[] = [
     description: "Blood type on record, from the API the portal's own Blood Type page reads.",
     path: "/OnlineWeb/Services/BloodType/BloodType.aspx",
     api: "/OnlineWeb/api/BloodType/GetBloodTypeData",
+    // The page's own script POSTs `null` as JSON (a React fetch helper); the answer is the record.
+    apiMethod: "POST",
+    apiBody: "null",
   },
 ];
 

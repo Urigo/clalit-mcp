@@ -9,6 +9,8 @@ import {
   documentRefSchema,
   getDocumentTool,
   getRecordDocumentTool,
+  getHospitalLabResultTool,
+  hospitalLabLinkSchema,
   listRecordsSchema,
   listRecordsTool,
   recordRefSchema,
@@ -32,7 +34,7 @@ import {
 const INSTRUCTIONS = [
   "Unofficial Clalit own-account reader (read-only).",
   "Unaffiliated with Clalit Health Services.",
-  "Tools: list_labs → get_lab_result / get_lab_document; list_prescriptions → get_prescription_issue_status; list_lab_orders → get_lab_order; list_documents → get_document (visit summaries, hospital summaries, …); list_records → get_record_document (diagnoses, sensitivities, medications, imaging, hospital visits and labs, referrals).",
+  "Tools: list_labs → get_lab_result / get_lab_document; list_prescriptions → get_prescription_issue_status; list_lab_orders → get_lab_order; list_documents → get_document (visit summaries, hospital summaries, …); list_records → get_record_document / get_hospital_lab_result (diagnoses, sensitivities, medications, imaging, hospital visits and labs, referrals, appointments, recommendations, vaccinations, blood type).",
   "Never invent portal query params. Never switch family members.",
   "Sign-in is interactive CAPTCHA+SMS on the user's machine; Imperva blocks datacenter IPs.",
   "Preserve Hebrew source text, units, ranges, and dates. Lab PDFs are original bytes; prescription/lab-order PDFs are out of scope.",
@@ -203,6 +205,15 @@ export function createMcpServer(extra?: ExtraTools): Server {
         },
       },
       {
+        name: "get_hospital_lab_result",
+        description: "Read one hospital lab result page using a hospital_labs row's link from list_records (analytes, values, units, ranges, flags).",
+        inputSchema: {
+          type: "object",
+          properties: { link: { type: "string", description: "The row's link (HospitalsLabTestDetails.aspx?s&d&h)." } },
+          required: ["link"],
+        },
+      },
+      {
         name: "get_record_document",
         description: "Download the original PDF for a list_records ref (an imaging report, a referral).",
         inputSchema: {
@@ -240,6 +251,7 @@ export function createMcpServer(extra?: ExtraTools): Server {
       else if (name === "get_document") result = await getDocumentTool(documentRefSchema.parse(args));
       else if (name === "list_records") result = await listRecordsTool(listRecordsSchema.parse(args));
       else if (name === "get_record_document") result = await getRecordDocumentTool(recordRefSchema.parse(args));
+      else if (name === "get_hospital_lab_result") result = await getHospitalLabResultTool(hospitalLabLinkSchema.parse(args));
       else throw new Error(`Unknown tool: ${name}`);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],

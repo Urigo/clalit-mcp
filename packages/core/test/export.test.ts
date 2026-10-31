@@ -86,6 +86,9 @@ function fakeClient(opts: { failDocument?: boolean; noDocument?: boolean; endSes
     },
     async listRecords(sourceId) {
       calls.push("listRecords " + sourceId);
+      if (sourceId === "hospital_labs") {
+        return [{ source: sourceId, date: "02.09.2026", fields: { "בית חולים": "בית חולים לדוגמה", תאריך: "02.09.2026", "תחום המעבדה": "המטולוגיה" }, cells: ["בית חולים לדוגמה", "02.09.2026", "המטולוגיה"], links: ["/OnlineWeb/Services/HospitalsLabs/HospitalsLabTestDetails.aspx?s=a&d=b&h=c"] }];
+      }
       if (sourceId !== "imaging_clinics") return [];
       const ref = { source: sourceId, actionUrl: "/OnlineWeb/api/Rentgen/GetPDFDocument/1/1000" };
       return [{ source: sourceId, date: "17.05.2026", fields: { "סוג הבדיקה": "צילום", "הגורם המפנה": "רופא" }, cells: ["17.05.2026", "צילום", "רופא"], ref, refToken: encodeRecordRef(ref) }];
@@ -94,6 +97,11 @@ function fakeClient(opts: { failDocument?: boolean; noDocument?: boolean; endSes
       calls.push("getRecordDocument");
       if (opts.failDocument) throw new Error("The Clalit request could not be completed (network error).");
       return { ref: decodeRecordRef(token), contentType: "application/pdf", filename: "imaging.pdf", bytes: new Uint8Array(Buffer.from("%PDF-1.4 imaging")) };
+    },
+    async getHospitalLabResult(link) {
+      calls.push("getHospitalLabResult");
+      const detail = parseLabDetailHtml(read("lab-detail.html"), { s: "s", d: "d", ls: "h" });
+      return { ...detail, ref: { s: "s", d: "d", ls: new URL(link, "https://e-services.clalit.co.il").searchParams.get("h") ?? "" } };
     },
   };
   return { client, calls, labs, orders };
@@ -134,9 +142,12 @@ describe("exportAll", () => {
     expect(visitPdfs[0]).toMatch(/^documents\/visit_summaries\/files\/2024-05-03_[0-9a-f]{8}_\S+\.pdf$/);
     for (const row of sink.json("documents/visit_summaries/list.json").data) expect(row).not.toHaveProperty("refToken");
     expect(report.folders.documents).toBe(5);
-    expect(names.filter((n) => n.startsWith("records/") && n.endsWith("list.json"))).toHaveLength(11);
+    expect(names.filter((n) => n.startsWith("records/") && n.endsWith("list.json"))).toHaveLength(15);
     expect(names.filter((n) => n.startsWith("records/imaging_clinics/files/"))).toHaveLength(1);
-    expect(report.folders.records).toBe(12);
+    const hospitalDetails = names.filter((n) => n.startsWith("records/hospital_labs/details/"));
+    expect(hospitalDetails).toHaveLength(1);
+    expect(sink.json(hospitalDetails[0]!).data.analytes[0]).toMatchObject({ name: "PT-INR" });
+    expect(report.folders.records).toBe(17);
 
     // File names: the list date as yyyy-mm-dd, a stable short id from the opaque ref, the test's name.
     const detail = names.filter((n) => n.startsWith("labs/details/")).at(-1)!; // sorted: the newest date last, the list's first row
@@ -169,7 +180,7 @@ describe("exportAll", () => {
     const before = calls.length;
     const again = await exportAll(client, sink, clock);
     expect(again.problems).toEqual([]);
-    expect(calls.slice(before).filter((c) => c.startsWith("getLabResult") || c.startsWith("getLabDocument") || c === "getDocument" || c === "getRecordDocument")).toEqual([]);
+    expect(calls.slice(before).filter((c) => c.startsWith("getLabResult") || c.startsWith("getLabDocument") || c === "getDocument" || c === "getRecordDocument" || c === "getHospitalLabResult")).toEqual([]);
   });
 
   test("a result the portal offers no PDF for is skipped without a request, on a rerun too, and is not a problem", async () => {

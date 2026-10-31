@@ -3,6 +3,9 @@ import {
   decodeRecordRef,
   encodeRecordRef,
   nextRecordPagerPage,
+  parseApiJson,
+  parseAppointmentsHtml,
+  parseRecommendationsHtml,
   parseRecordGridHtml,
   parseReferralsHtml,
   RECORD_SOURCE_IDS,
@@ -152,5 +155,51 @@ describe("ClalitReaders listRecords", () => {
     expect(posts).toHaveLength(2);
     expect(posts[0]!["__EVENTTARGET"]).toBe("ctl00$ctl00$cphBody$bodyContent$btnShow$lnkSubButton");
     expect(posts[0]!["ctl00$ctl00$cphBody$bodyContent$DatepickerRangeCalendar1$txtFromDate"]).toBe("01.01.2000");
+  });
+});
+
+describe("pages of their own shape", () => {
+  test("appointments: the home page's PopUpVisit calls, without the member's name and id", () => {
+    const html = `<div onclick="javascript:PopUpVisit('ד&quot;ר פלונית','ישראל ישראלי','000000000','11111111-2222-3333-4444-555555555555','אולטרסאונד בטן','02.11.2026','11:20');"></div>
+<div onclick="javascript:PopUpVisit('','ישראל ישראלי','000000000','66666666-7777-8888-9999-000000000000','בדיקת דם','05.11.2026','08:00');"></div>`;
+    const rows = parseAppointmentsHtml(html);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ source: "appointments", date: "02.11.2026", fields: { תאריך: "02.11.2026", שעה: "11:20", שירות: "אולטרסאונד בטן" } });
+    expect(JSON.stringify(rows)).not.toContain("000000000");
+    expect(JSON.stringify(rows)).not.toContain("ישראל ישראלי");
+    expect(rows[1]!.fields).not.toHaveProperty("רופא/ה");
+  });
+
+  test("recommendations: title, text and the updated date of each Measures panel", () => {
+    const html = `<h2 aria-controls="ctl00_pnlContent"><a><span id="ctl00_ShowMeasure">המלצה רפואית בשבילך: חיסון נגד דלקת ריאות</span></a></h2>
+<div id="ctl00_pnlContent"><p>אנחנו ממליצים לך להתחסן.<br>למה חשוב?<br>כי כן.</p><span><p>המלצה זו מעודכנת לתאריך&nbsp;<b>30.10.2026</b>. אם חוסנת בינתיים אנא עדכן את הרופא שלך.</p></span></div>`;
+    const rows = parseRecommendationsHtml(html);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.fields["המלצה"]).toBe("חיסון נגד דלקת ריאות");
+    expect(rows[0]!.fields["מעודכנת לתאריך"]).toBe("30.10.2026");
+    expect(rows[0]!.date).toBe("30.10.2026");
+    expect(rows[0]!.fields["טקסט"]).toContain("אנחנו ממליצים לך להתחסן.\nלמה חשוב?");
+  });
+
+  test("api json: a JSON string holding JSON, dates surfaced, nulls dropped", () => {
+    const inner = JSON.stringify([
+      { RecordId: 1, ExaminationDate: "/Date(1761868800000)/", ExaminationName: "SHINGRIX", ExaminationLocation: "מרפאה", ReportSource: null, GilYomiMonth: 940 },
+      { RecordId: 2, ExaminationDate: "2024-10-15T00:00:00", ExaminationName: "FLU" },
+    ]);
+    const rows = parseApiJson(JSON.stringify(inner), "vaccinations");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ source: "vaccinations", date: "31.10.2025", fields: { ExaminationName: "SHINGRIX", ExaminationLocation: "מרפאה", GilYomiMonth: "940" } });
+    expect(rows[0]!.fields).not.toHaveProperty("ReportSource");
+    expect(rows[1]!.date).toBe("15.10.2024");
+    expect(parseApiJson(JSON.stringify({ Status: 10206 }), "blood_type")).toEqual([{ source: "blood_type", fields: { Status: "10206" }, cells: ["10206"] }]);
+    expect(parseApiJson("null", "blood_type")).toEqual([]);
+  });
+
+  test("hospital lab rows keep their detail link resolved against the page", () => {
+    const html = `<table class="ClalitGridTable" id="x_gvTestListInDateRange"><tr><th>תאריך</th><th>תחום</th><th></th></tr>
+<tr class="ClalitGridRow"><td>02.09.2026</td><td>המטולוגיה</td><td><a href="HospitalsLabTestDetails.aspx?s=AA%3d%3d&amp;d=BB&amp;h=CC%3d">הצגה</a></td></tr></table>`;
+    const rows = parseRecordGridHtml(html, "hospital_labs");
+    expect(rows[0]!.links).toEqual(["/OnlineWeb/Services/HospitalsLabs/HospitalsLabTestDetails.aspx?s=AA%3d%3d&d=BB&h=CC%3d"]);
+    expect(nextRecordPagerPage(`__doPostBack(&#39;ctl00$ctl00$cphBody$bodyContent$LabsHistory1$gvTestListInDateRange$PagerLink-2&#39;`, recordSource("hospital_labs")!, 1)).toBe(2);
   });
 });

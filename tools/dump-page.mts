@@ -74,6 +74,24 @@ function firstRowPostback(html: string): string | undefined {
   return found;
 }
 
+/** The first grid row's own same-origin page link (a detail page), as a portal path. */
+function firstRowLink(html: string, pagePath: string): string | undefined {
+  const $ = cheerio.load(html);
+  let found: string | undefined;
+  $("tr.ClalitGridRow a[href], tr.ClalitGridAltRow a[href]").each((_, a) => {
+    if (found) return;
+    const href = $(a).attr("href") ?? "";
+    if (/^\s*javascript:/i.test(href)) return;
+    try {
+      const url = new URL(href, PORTAL_ORIGIN + pagePath);
+      if (url.origin === PORTAL_ORIGIN && /\.aspx$/i.test(url.pathname)) found = url.pathname + url.search;
+    } catch {
+      /* not a link */
+    }
+  });
+  return found;
+}
+
 const today = (() => {
   const d = new Date();
   return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
@@ -109,6 +127,11 @@ if (sourceId) {
       if (target && rows > 0) {
         const detail = await post(source.path, result, fields, target);
         await save(`${source.id}.detail${option ? "." + option[0] : ""}.html`, detail);
+      }
+      const link = firstRowLink(result, source.path);
+      if (link && rows > 0) {
+        const detail = await get(link);
+        await save(`${source.id}.linked${option ? "." + option[0] : ""}.html`, detail.text);
       }
       if (rows > 0 && shown >= 2) break;
     }

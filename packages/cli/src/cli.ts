@@ -326,6 +326,31 @@ export async function runCli(args: string[]): Promise<number> {
         return 1;
       }
     }
+    case "hospital-lab-result": {
+      const link = flag(rest, "link");
+      if (!link) {
+        console.error("Usage: clalit-mcp hospital-lab-result --link PATH [--json]   (PATH from a `records --source hospital_labs --json` row's links)");
+        return 2;
+      }
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const data = await client.getHospitalLabResult(link);
+        if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
+        else {
+          console.log(data.title);
+          if (data.date) console.log(data.date);
+          for (const a of data.analytes) {
+            const units = a.units && !a.result.endsWith(a.units) ? a.units : "";
+            console.log([a.name, a.result, units, a.referenceRange ?? "", a.flag ?? ""].filter(Boolean).join("\t"));
+          }
+        }
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "hospital-lab-result failed");
+        return 1;
+      }
+    }
     case "export": {
       const client = await requireClient();
       if (!client) return 3;

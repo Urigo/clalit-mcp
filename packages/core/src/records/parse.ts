@@ -15,9 +15,9 @@ function cleanText(raw: string): string {
   return raw.replace(/\s+/g, " ").trim();
 }
 
-function portalPath(raw: string): string {
+function portalPath(raw: string, base: string = PORTAL_ORIGIN): string {
   try {
-    const url = new URL(raw, PORTAL_ORIGIN);
+    const url = new URL(raw, base);
     return url.origin === PORTAL_ORIGIN ? url.pathname + url.search : "";
   } catch {
     return "";
@@ -76,15 +76,16 @@ function rowRef($: cheerio.CheerioAPI, tr: AnyNode, source: RecordSource): Recor
   return { source: source.id, actionUrl, ...(actionData ? { actionData } : {}) };
 }
 
-/** Same-origin `.aspx` links in the row, as portal paths (a detail page, say). */
-function rowLinks($: cheerio.CheerioAPI, tr: AnyNode): string[] {
+/** Same-origin `.aspx` links in the row, as portal paths with their query (a detail page, say). */
+function rowLinks($: cheerio.CheerioAPI, tr: AnyNode, pagePath: string): string[] {
   const links = new Set<string>();
   $(tr)
     .find("a[href]")
     .each((_, a) => {
       const href = $(a).attr("href") ?? "";
       if (/^\s*javascript:/i.test(href)) return;
-      const path = portalPath(href);
+      // Relative hrefs ("HospitalsLabTestDetails.aspx?s=…") resolve against the page, not the origin.
+      const path = portalPath(href, PORTAL_ORIGIN + pagePath);
       if (/\.aspx/i.test(path)) links.add(path);
     });
   return [...links];
@@ -136,7 +137,7 @@ export function parseRecordGridHtml(html: string, sourceId: string): RecordRow[]
     });
     const dateCell = cells.find((c) => DATE_RE.test(c));
     const ref = rowRef($, tr, source);
-    const links = rowLinks($, tr);
+    const links = rowLinks($, tr, source.path);
     rows.push({
       source: source.id,
       ...(dateCell ? { date: portalDate(dateCell) } : {}),

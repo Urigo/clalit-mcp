@@ -56,6 +56,9 @@ import {
   decodeRecordRef,
   encodeRecordRef,
   nextRecordPagerPage,
+  parseApiJson,
+  parseAppointmentsHtml,
+  parseRecommendationsHtml,
   parseRecordGridHtml,
   parseReferralsHtml,
   recordSource,
@@ -483,8 +486,14 @@ export class ClalitReaders {
     this.transport.assertNotIdleExpired();
     const source = recordSource(sourceId);
     if (!source) throw new ParseError("UNKNOWN_SOURCE", "Unknown record source.");
-    if (source.id === REFERRALS_SOURCE_ID) return this.#listReferrals(options);
+    if (source.kind === "referrals" || source.id === REFERRALS_SOURCE_ID) return this.#listReferrals(options);
+    if (source.kind === "api") {
+      const res = await this.transport.request(PORTAL_ORIGIN + source.api!, { headers: { accept: "application/json, text/plain, */*" } });
+      return parseApiJson(await readText(res), source.id);
+    }
     const url = PORTAL_ORIGIN + source.path;
+    if (source.kind === "appointments") return parseAppointmentsHtml(await readText(await this.transport.request(url)));
+    if (source.kind === "recommendations") return parseRecommendationsHtml(await readText(await this.transport.request(url)));
     const parse = (html: string) => parseRecordGridHtml(html, source.id);
     const page = await readText(await this.transport.request(url));
     const search = source.search;
@@ -592,6 +601,25 @@ export class ClalitReaders {
       if (added === 0) break;
     }
     return rows;
+  }
+
+  /**
+   * getHospitalLabResult — a hospital lab row's result page
+   * (HospitalsLabTestDetails.aspx?s&d&h, from the row's `links`), read with
+   * the clinic lab detail parser: the page is the same control.
+   */
+  async getHospitalLabResult(link: string): Promise<LabResultDetail> {
+    this.transport.assertNotIdleExpired();
+    const url = new URL(link, PORTAL_ORIGIN);
+    if (url.origin !== PORTAL_ORIGIN || !/^\/OnlineWeb\/Services\/HospitalsLabs\/HospitalsLabTestDetails\.aspx$/i.test(url.pathname)) {
+      throw new OwnerScopeError("Only a hospital lab result page linked from the owner's own list may be read.");
+    }
+    const s = url.searchParams.get("s") ?? "";
+    const d = url.searchParams.get("d") ?? "";
+    const h = url.searchParams.get("h") ?? "";
+    if (!s || !d || !h) throw new ParseError("INVALID_REF", "Hospital lab link is missing its parameters.");
+    const html = await readText(await this.transport.request(url.pathname + url.search));
+    return parseLabDetailHtml(html, { s, d, ls: h });
   }
 
   /**

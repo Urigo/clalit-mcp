@@ -37,6 +37,7 @@ export interface ExportClient {
   getDocument(refOrToken: string): Promise<ClalitDocument>;
   listRecords(sourceId: string, options?: { fromDate?: string; toDate?: string }): Promise<RecordRow[]>;
   getRecordDocument(refOrToken: string): Promise<RecordDocument>;
+  getHospitalLabResult(link: string): Promise<LabResultDetail>;
 }
 
 /** Where the files go. The CLI gives a folder; tests give memory. */
@@ -310,6 +311,31 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
         problem(`${folder}/list.json`, e);
         continue;
       }
+      // Rows that link to a result page (hospital labs): one detail file per row, like labs/details.
+      if (source.detail === "hospital_lab") {
+        const linked = rows.filter((r) => r.links?.some((l) => /HospitalsLabTestDetails\.aspx/i.test(l)));
+        const seenDetails = new Set<string>();
+        for (let i = 0; i < linked.length; i++) {
+          const row = linked[i]!;
+          const link = row.links!.find((l) => /HospitalsLabTestDetails\.aspx/i.test(l))!;
+          let name = stem(isoDate(row.date), shortHash(link), safeTitle(Object.values(row.fields).slice(0, 3).join("-")));
+          if (seenDetails.has(name)) name += "-" + i;
+          seenDetails.add(name);
+          const rel = `${folder}/details/${name}.json`;
+          if (await sink.exists(rel)) {
+            count(rel);
+            continue;
+          }
+          try {
+            await sleep(pace);
+            await putJson(rel, wrap("hospital-lab-result", await client.getHospitalLabResult(link), { list: withoutToken(row) }));
+          } catch (e) {
+            if (e instanceof ReauthenticationRequired) throw e;
+            problem(rel, e);
+          }
+          if ((i + 1) % 10 === 0 || i === linked.length - 1) log(`  ${i + 1}/${linked.length} results`);
+        }
+      }
       if (!documents) continue;
       const seenPdfs = new Set<string>();
       const withPdf = rows.filter((r) => r.refToken && r.ref);
@@ -403,13 +429,18 @@ row's cells keyed by the portal's own Hebrew column headers, \`cells\` in column
 (the regular medication list), \`medicines_purchased/\` תרופות שנקנו (pharmacy purchases since 08.2008 — what was actually
 dispensed), \`medication_approvals/\` אישורי תרופות, \`imaging_clinics/\` · \`imaging_hospitals/\` · \`imaging_external/\` פענוחי
 דימות (imaging reports; the PDF is the radiologist's text), \`hospital_visits/\` ביקורים בבתי החולים של כללית, \`hospital_labs/\`
-בדיקות מעבדה מבתי חולים (hospital lab tests, separate from \`labs/\`), \`referrals/\` הפניות (the last year only; the PDF is the referral).
+בדיקות מעבדה מבתי חולים (hospital lab tests, separate from \`labs/\`; \`details/\` holds each draw's analytes in the same shape as
+\`labs/details/\`), \`referrals/\` הפניות (the last year only; the PDF is the referral), \`appointments/\` תורים עתידיים (the next
+appointments: date, time, doctor or service), \`recommendations/\` המלצות רפואיות (the portal's own preventive-care recommendations
+for this member, with their text), \`vaccinations/\` החיסונים שעשיתי and \`blood_type/\` סוג הדם (from the endpoints the portal's
+own pages read; keys are the portal's field names).
 Each \`list.json\` carries the portal's own \`notes\` on what that page leaves out.` : ""}
 ${missing.length ? `\nThis export has no ${absent}.\n` : ""}
 ## What is not here
 
-Vaccinations and blood type (React pages the portal fills from an API not read yet), appointments, the medical file itself,
-and anything the portal marks sensitive or confidential: not here. An absence here is not an absence in your history.
+Family-doctor visit notes (the portal exposes only specialist summaries), the images behind imaging reports (only the
+radiologist's report), records from non-Clalit hospitals, and anything the portal marks sensitive or confidential: not here.
+An absence here is not an absence in your history.
 
 ## What this export failed to collect
 

@@ -30,6 +30,16 @@ export interface RecordSource {
   pdfPath?: string;
   /** What the portal says about the page's coverage, for the export README. */
   notes?: string;
+  /**
+   * How the page is read. `grid` (default): one Clalit grid. The others are pages of their own shape:
+   * `referrals` (a repeater), `appointments` (the home page's upcoming visits), `recommendations`
+   * (the Measures accordion), and `api` (a JSON endpoint behind a React page, at `api`).
+   */
+  kind?: "grid" | "referrals" | "appointments" | "recommendations" | "api";
+  /** For `kind: "api"`: the JSON endpoint the page's own script reads. GET only. */
+  api?: string;
+  /** Rows link to a detail page of this shape (a lab result); `export` reads it. */
+  detail?: "hospital_lab";
 }
 
 export interface RecordSearch {
@@ -160,8 +170,12 @@ export const RECORD_SOURCES: readonly RecordSource[] = [
   {
     id: "hospital_labs",
     title: "בדיקות מעבדה מבתי חולים",
-    description: "Laboratory tests done at Clalit hospitals (separate from the clinic labs list), searched per hospital.",
+    description:
+      "Laboratory tests done at Clalit hospitals (separate from the clinic labs list), searched per hospital; each row links to its result page (HospitalsLabTestDetails.aspx), which `export` reads.",
     path: "/OnlineWeb/Services/HospitalsLabs/HospitalsLabsTestList.aspx",
+    gridId: "gvTestListInDateRange",
+    pagerLinkPrefix: `${BODY}LabsHistory1$gvTestListInDateRange$PagerLink-`,
+    detail: "hospital_lab",
     search: {
       fromField: `${BODY}LabsHistory1$datepickerRangeCalendar$txtFromDate`,
       toField: `${BODY}LabsHistory1$datepickerRangeCalendar$txtToDate`,
@@ -173,8 +187,44 @@ export const RECORD_SOURCES: readonly RecordSource[] = [
   },
 ];
 
+/** Pages of their own shape, read by their own parsers (records/pages.ts). */
+export const PAGE_SOURCES: readonly RecordSource[] = [
+  {
+    id: "appointments",
+    kind: "appointments",
+    title: "תורים עתידיים",
+    description: "Upcoming appointments as the home page lists them: date, time, doctor or service, specialty.",
+    path: "/OnlineWeb/Services/FamilyHomePage.aspx",
+    notes: "Only the appointments the home page shows (the next ones); the appointments system itself is a separate application.",
+  },
+  {
+    id: "recommendations",
+    kind: "recommendations",
+    title: "המלצות רפואיות אישיות",
+    description: "The portal's own personalised medical recommendations (preventive care the member is due for), with their text and the date each was updated.",
+    path: "/OnlineWeb/Services/Measures/Measures.aspx",
+  },
+  {
+    id: "vaccinations",
+    kind: "api",
+    title: "החיסונים שעשיתי",
+    description: "Vaccinations on record (date, vaccine, where given, who reported it), from the API the portal's own Vaccinations page reads.",
+    path: "/OnlineWeb/Services/Vaccinations/Vaccinations.aspx",
+    api: "/OnlineWeb/api/Vaccins/GetVaccins",
+  },
+  {
+    id: "blood_type",
+    kind: "api",
+    title: "סוג הדם שלי",
+    description: "Blood type on record, from the API the portal's own Blood Type page reads.",
+    path: "/OnlineWeb/Services/BloodType/BloodType.aspx",
+    api: "/OnlineWeb/api/BloodType/GetBloodTypeData",
+  },
+];
+
 export const REFERRALS_SOURCE: RecordSource = {
   id: "referrals",
+  kind: "referrals",
   title: "ההפניות שלי",
   description:
     "Referrals (general הפניות, not lab orders): what each is for, its date, referrer, validity and the services it covers, with the referral PDF. The portal searches the last year only.",
@@ -191,7 +241,7 @@ export const REFERRALS_SOURCE: RecordSource = {
   notes: "The portal keeps only the last year of referrals; referrals marked sensitive are not shown.",
 };
 
-export const ALL_RECORD_SOURCES: readonly RecordSource[] = [...RECORD_SOURCES, REFERRALS_SOURCE];
+export const ALL_RECORD_SOURCES: readonly RecordSource[] = [...RECORD_SOURCES, REFERRALS_SOURCE, ...PAGE_SOURCES];
 export const RECORD_SOURCE_IDS = ALL_RECORD_SOURCES.map((s) => s.id);
 
 export function recordSource(id: string): RecordSource | undefined {

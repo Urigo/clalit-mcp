@@ -14,6 +14,7 @@ export const TOOL_NAMES = [
   "get_document",
   "list_records",
   "get_record_document",
+  "get_hospital_lab_result",
 ] as const;
 
 /**
@@ -315,4 +316,14 @@ export async function getRecordDocumentTool(args: z.infer<typeof recordRefSchema
     },
     guidance: "Original PDF bytes (base64). Not extracted text. Handle as medical PHI.",
   };
+}
+
+export const hospitalLabLinkSchema = z.object({
+  link: z.string().describe("A hospital_labs row's link from list_records (HospitalsLabTestDetails.aspx?s&d&h). Never invent one."),
+});
+
+export async function getHospitalLabResultTool(args: z.infer<typeof hospitalLabLinkSchema>) {
+  const client = await getClient();
+  const data = await client.getHospitalLabResult(args.link);
+  return { data, guidance: "Hospital lab result as parsed from the portal page. Preserve Hebrew names, units and ranges." };
 }

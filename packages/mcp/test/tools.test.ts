@@ -14,6 +14,7 @@ describe("MCP tool surface", () => {
       [
         "get_document",
         "get_record_document",
+        "get_hospital_lab_result",
         "list_records",
         "get_lab_document",
         "get_lab_order",

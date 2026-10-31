@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Documents**: `documents` / `document` (CLI) and `list_documents` / `get_document` (MCP) read visit summaries (סיכומי ביקור רפואה יועצת), hospital summaries (סיכומים מבתי חולים, searched per hospital), medical approvals (אישורים רפואיים) and Form 17 (התחייבויות) with their PDFs; a search that fills the portal's 10-row page is split by date until every row is found. Ported from [tadnir/clalit-mcp](https://github.com/tadnir/clalit-mcp) by Michael Tadnir.
+- **`export`**: the document sources too — `documents/<source>/list.json` and `files/*.pdf`; `--no-documents` skips every PDF and keeps the lists.
+- **MCP server**: sign-in and keep-alive live in the server. `clalit_login` returns a link to a sign-in page the server serves on `localhost:8765` (ID, CAPTCHA and SMS code are typed there, never in the chat, with a chosen session length of 1 hour to 1 week); the session is kept alive with `RefreshSession.aspx` while the server runs; `clalit_session_status`, `clalit_logout`. A session from the CLI is shared. Also from tadnir/clalit-mcp. The `login` pages use relative links, so they also work behind a path prefix ([docs/HOSTING.md](docs/HOSTING.md)).
+- **`tools/sitemap.mts`**: a GET-only, paced walk over the signed-in portal that records which pages an account has and their shapes (titles, form field names, dropdown labels, grid headers — never a value), for building new readers from evidence; `--raw` keeps the HTML privately.
+
 ## 2026-10-22
 
 - **`export`**: a lab result the portal offers no PDF for is skipped (counted in the README), no longer filed in `export-errors.json`; on a first run it costs no request. `NO_DOCUMENT` has a message of its own.

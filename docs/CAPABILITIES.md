@@ -11,7 +11,11 @@
 | Prescription issue status (read) | `prescription-status` | `get_prescription_issue_status` | `getPrescriptionIssueStatus(...)` |
 | Lab orders list (הפניות לבדיקות מעבדה) | `lab-orders` | `list_lab_orders` | `listLabOrders()` |
 | Lab order detail | `lab-order --ref` | `get_lab_order` | `getLabOrder(ref)` |
-| Export everything to a folder | `export` | — | `exportAll(client, sink)` |
+| Documents list (visit summaries, hospital summaries, medical approvals, Form 17) | `documents --source` | `list_documents` | `listDocuments(source)` |
+| Document PDF | `document --ref` | `get_document` | `getDocument(ref)` |
+| Export everything to a folder (documents included) | `export` | — | `exportAll(client, sink)` |
+| Sign in / status / sign out | `login` / `logout` | `clalit_login` / `clalit_session_status` / `clalit_logout` | n/a |
+| Map the portal's pages (value-free) | `tools/sitemap.mts` | — | n/a |
 
 `@clalit/core` is a **private** workspace package shared by the CLI and MCP server. It is not a published SDK — do not advertise or document installing it as a library.
 
@@ -33,6 +37,15 @@ Upstream pages:
 
 - List: `GET /OnlineWeb/Services/LabOrders/LabOrderList.aspx`
 - Detail: `GET /OnlineWeb/Services/LabOrders/LabOrderDetails.aspx?ord=`
+
+### Documents
+
+Pages sharing the portal's DownloadPdfBtnBinder flow: each grid row carries `data-actionurl` (a DoesPdfExists-style API call that also selects the document server-side), then `<page>PDF.ashx?show=true` streams the selected PDF. The grids show only their first page (10 rows), so a date-range search that fills a page is split in two until every half fits.
+
+- Visit summaries: `GET/POST /OnlineWeb/Services/VisitSummaries/VisitSummaries.aspx` → `VisitSummariesPDF.ashx?show=true`
+- Hospital summaries: `GET/POST /OnlineWeb/Services/SummaryLetter/SummaryLetter.aspx` (one search per hospital in the dropdown) → `SummaryLetterPDF.ashx?show=true`
+- Medical approvals: `GET/POST /OnlineWeb/Services/MedicalApproval/MedicalApproval.aspx` → `MedicalApprovalPDFHandler.ashx?Print=false`
+- Form 17: `GET /OnlineWeb/Services/Form17/Form17.aspx` (last year only) → `Form17PdfHandler.ashx?print=false`
 
 ## Still out / roadmap
 

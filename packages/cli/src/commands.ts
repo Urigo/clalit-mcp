@@ -103,18 +103,18 @@ export const COMMANDS: Record<string, Command> = {
     options: ["ref", "out"],
   },
   "hospital-lab-result": {
-    usage: "hospital-lab-result --link PATH [--hospital VALUE] [--json]",
+    usage: "hospital-lab-result (--link PATH | --hospital VALUE --test NUMBER) [--date dd.MM.yyyy] [--json]",
     summary: "Read one hospital lab result page (from a hospital_labs row's link).",
-    description: "Fetches HospitalsLabTestDetails.aspx with the s/d/h query a `records --source hospital_labs` row carries in `links`, and reads it with the lab-detail parser: analytes, values, units, ranges, flags. The page answers only while its hospital is the portal's current search, so pass the row's `context.value` as --hospital and the search is replayed first.",
-    options: ["link", "hospital", "json"],
+    description: "Fetches HospitalsLabTestDetails.aspx with the s/d/h query a `records --source hospital_labs` row carries in `links`, and reads it with the lab-detail parser: analytes, values, units, ranges, flags. The links the list hands out expire with that render of the list, so with --hospital (the row's context.value) and --test (its מספר הבדיקה) the hospital's search is replayed, the pager walked to the row, and its fresh link followed. A bare --link is tried as is.",
+    options: ["link", "hospital", "test", "date", "json"],
     notes: "Links only from the owner's own list; nothing is invented.",
   },
   export: {
-    usage: "export [--out DIR] [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--no-documents] [--current-only]",
+    usage: "export [--out DIR] [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--no-documents] [--current-only] [--only SECTION,…]",
     summary: "Save everything this client can read into one folder.",
     description:
       "Writes ./clalit-export-<today>/ (or under --out): labs/ (list, one file per result, the PDFs), prescriptions/, lab-orders/, documents/ (visit summaries, hospital summaries, medical approvals, Form 17: a list and the PDFs per source), records/ (diagnoses, sensitivities, chronic medications, purchased medicines, medication approvals, imaging from clinics, hospitals and external institutes, hospital visits and labs with each draw's results, referrals, upcoming appointments, the portal's recommendations, vaccinations, blood type: a list per source, the imaging and referral PDFs), plus README.md (the export's data dictionary, written for an AI assistant), export-errors.json, CLAUDE.md and AGENTS.md. The labs list is asked for from 01.01.1990 to today unless --from/--to say otherwise (they filter labs only; prescriptions, lab orders, documents and records are always exported in full). A rerun into the same folder writes nothing it already has.",
-    options: ["out", "from", "to", "no-documents", "current-only"],
+    options: ["out", "from", "to", "no-documents", "current-only", "only"],
     notes:
       "Requests go one at a time, 300 ms apart. An item that fails is listed in export-errors.json and the export goes on (a result the portal has no PDF for is skipped, not listed); an ended session stops it and keeps what was collected. --current-only leaves expired prescriptions out; --no-documents skips every PDF (lab results and documents) and keeps the lists. Read-only, own record only.",
   },

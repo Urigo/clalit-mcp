@@ -73,7 +73,7 @@ import {
 import { assertPdfBytes, filenameFromContentDisposition } from "./labs/document.js";
 import type { ClalitTransport } from "./transport.js";
 import { readBytes, readText } from "./transport.js";
-import { buildPostBackBody, extractWebFormsState } from "./webforms.js";
+import { buildPostBackBody, extractWebFormsState, looksLikeLoginPage } from "./webforms.js";
 
 export interface ListedLab extends LabListItem {
   /** Opaque token for CLI/MCP follow-up calls. */
@@ -612,11 +612,65 @@ export class ClalitReaders {
 
   /**
    * getHospitalLabResult — a hospital lab row's result page
-   * (HospitalsLabTestDetails.aspx?s&d&h, from the row's `links`), read with
-   * the clinic lab detail parser: the page is the same control.
+   * (HospitalsLabTestDetails.aspx?s&d&h), read with the clinic lab detail
+   * parser: the page is the same control.
+   *
+   * The links the list hands out live only as long as that render of the list:
+   * the portal re-issues them on every search and answers an old one with a
+   * redirect. So, given the row's hospital (its `context`) and a way to tell
+   * it apart (the test number, or its date and section), the hospital's
+   * search is replayed, the pager walked until the row is found, and that
+   * fresh link followed — as a person would: pick the hospital, show, open.
+   * With a bare link and no row to match, the link is tried as is.
    */
-  async getHospitalLabResult(link: string, context?: { select: string; value: string }): Promise<LabResultDetail> {
+  async getHospitalLabResult(
+    row: { link?: string; context?: { select: string; value: string }; testNumber?: string; date?: string; section?: string },
+  ): Promise<LabResultDetail> {
     this.transport.assertNotIdleExpired();
+    const source = recordSource("hospital_labs")!;
+    const search = source.search!;
+    let link = row.link;
+    if (row.context?.select && (row.testNumber || row.date)) {
+      const listUrl = PORTAL_ORIGIN + source.path;
+      const page = await readText(await this.transport.request(listUrl));
+      const fields = {
+        ...search.fields,
+        [row.context.select]: row.context.value,
+        [search.fromField]: search.minDate,
+        [search.toField]: todayPortalDate(),
+      };
+      const state = extractWebFormsState(page);
+      let html = await readText(
+        await this.transport.request(listUrl, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: buildPostBackBody({ ...state, hidden: omitFamilySliderFields(state.hidden) }, fields, search.submit, ""),
+        }),
+      );
+      const matches = (r: RecordRow) =>
+        (row.testNumber && Object.values(r.fields).includes(row.testNumber)) ||
+        (!row.testNumber && row.date && r.date === row.date && (!row.section || Object.values(r.fields).includes(row.section)));
+      let found = parseRecordGridHtml(html, source.id).find(matches);
+      let current = 1;
+      for (let pages = 1; !found && pages < LABS_LIST_MAX_PAGES; pages++) {
+        const next = nextRecordPagerPage(html, source, current);
+        if (next === undefined) break;
+        const st = extractWebFormsState(html);
+        html = await readText(
+          await this.transport.request(listUrl, {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: buildPostBackBody({ ...st, hidden: omitFamilySliderFields(st.hidden) }, fields, `${source.pagerLinkPrefix}${next}`, ""),
+          }),
+        );
+        current = next;
+        found = parseRecordGridHtml(html, source.id).find(matches);
+      }
+      const fresh = found?.links?.find((l) => /HospitalsLabTestDetails\.aspx/i.test(l));
+      if (!fresh) throw new UpstreamError("DETAIL_NOT_FOUND", 404);
+      link = fresh;
+    }
+    if (!link) throw new ParseError("INVALID_REF", "A hospital lab result needs the row's link, or its hospital and test number.");
     const url = new URL(link, PORTAL_ORIGIN);
     if (url.origin !== PORTAL_ORIGIN || !/^\/OnlineWeb\/Services\/HospitalsLabs\/HospitalsLabTestDetails\.aspx$/i.test(url.pathname)) {
       throw new OwnerScopeError("Only a hospital lab result page linked from the owner's own list may be read.");
@@ -625,29 +679,8 @@ export class ClalitReaders {
     const d = url.searchParams.get("d") ?? "";
     const h = url.searchParams.get("h") ?? "";
     if (!s || !d || !h) throw new ParseError("INVALID_REF", "Hospital lab link is missing its parameters.");
-    // The result page answers only while its hospital is the portal's current search (the page keeps that
-    // server-side), so the row's search is replayed first — as a person would: pick the hospital, show, open.
-    const source = recordSource("hospital_labs")!;
-    if (context?.select && source.search) {
-      const listUrl = PORTAL_ORIGIN + source.path;
-      const page = await readText(await this.transport.request(listUrl));
-      const state = extractWebFormsState(page);
-      const fields = {
-        ...source.search.fields,
-        [context.select]: context.value,
-        [source.search.fromField]: source.search.minDate,
-        [source.search.toField]: todayPortalDate(),
-      };
-      await readText(
-        await this.transport.request(listUrl, {
-          method: "POST",
-          headers: { "content-type": "application/x-www-form-urlencoded" },
-          body: buildPostBackBody({ ...state, hidden: omitFamilySliderFields(state.hidden) }, fields, source.search.submit, ""),
-        }),
-      );
-    }
-    const html = await readText(await this.transport.request(url.pathname + url.search, { headers: { referer: PORTAL_ORIGIN + source.path } }));
-    if (/object\s+moved/i.test(html.slice(0, 2000))) {
+    const html = await readText(await this.transport.request(url.pathname + url.search, { allowLoginHtml: true }));
+    if (/object\s+moved/i.test(html.slice(0, 2000)) || looksLikeLoginPage(html)) {
       throw new UpstreamError("DETAIL_REDIRECTED", 302);
     }
     return parseLabDetailHtml(html, { s, d, ls: h });

@@ -210,10 +210,11 @@ export function createMcpServer(extra?: ExtraTools): Server {
         inputSchema: {
           type: "object",
           properties: {
-            link: { type: "string", description: "The row's link (HospitalsLabTestDetails.aspx?s&d&h)." },
-            hospital: { type: "string", description: "The row's context.value (hospital option), so its search is replayed first." },
+            link: { type: "string", description: "The row's link (HospitalsLabTestDetails.aspx?s&d&h); it expires with the list's render." },
+            hospital: { type: "string", description: "The row's context.value (hospital option): with testNumber, the search is replayed and the row's fresh link followed." },
+            testNumber: { type: "string", description: "The row's מספר הבדיקה." },
+            date: { type: "string", description: "The row's date (dd.MM.yyyy), when there is no test number." },
           },
-          required: ["link"],
         },
       },
       {

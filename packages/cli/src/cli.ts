@@ -328,18 +328,20 @@ export async function runCli(args: string[]): Promise<number> {
     }
     case "hospital-lab-result": {
       const link = flag(rest, "link");
-      if (!link) {
-        console.error("Usage: clalit-mcp hospital-lab-result --link PATH [--hospital VALUE] [--json]   (PATH and the context.value from a `records --source hospital_labs --json` row)");
+      if (!link && !(flag(rest, "hospital") && (flag(rest, "test") || flag(rest, "date")))) {
+        console.error("Usage: clalit-mcp hospital-lab-result (--link PATH | --hospital VALUE --test NUMBER) [--date dd.MM.yyyy] [--json]   (from a `records --source hospital_labs --json` row: its links, context.value and מספר הבדיקה)");
         return 2;
       }
       const client = await requireClient();
       if (!client) return 3;
       try {
         const hospital = flag(rest, "hospital");
-        const data = await client.getHospitalLabResult(
+        const data = await client.getHospitalLabResult({
           link,
-          hospital ? { select: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$ddlHospitalName", value: hospital } : undefined,
-        );
+          ...(hospital ? { context: { select: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$ddlHospitalName", value: hospital } } : {}),
+          testNumber: flag(rest, "test"),
+          date: flag(rest, "date"),
+        });
         if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
         else {
           console.log(data.title);
@@ -365,6 +367,7 @@ export async function runCli(args: string[]): Promise<number> {
           toDate: flag(rest, "to"),
           documents: !has(rest, "no-documents"),
           includeExpired: !has(rest, "current-only"),
+          ...(flag(rest, "only") ? { only: flag(rest, "only")!.split(",").map((x) => x.trim()).filter(Boolean) } : {}),
           log: (line) => console.log(line),
         });
         const width = Math.max(0, ...Object.keys(report.folders).map((k) => k.length));

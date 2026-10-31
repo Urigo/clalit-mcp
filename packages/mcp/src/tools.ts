@@ -320,15 +320,19 @@ export async function getRecordDocumentTool(args: z.infer<typeof recordRefSchema
 }
 
 export const hospitalLabLinkSchema = z.object({
-  link: z.string().describe("A hospital_labs row's link from list_records (HospitalsLabTestDetails.aspx?s&d&h). Never invent one."),
-  hospital: z.string().optional().describe("The row's context.value from list_records (the hospital option); the search is replayed first so the page answers."),
+  link: z.string().optional().describe("A hospital_labs row's link from list_records (HospitalsLabTestDetails.aspx?s&d&h). Never invent one."),
+  hospital: z.string().optional().describe("The row's context.value from list_records (the hospital option). With testNumber, the search is replayed and the row's fresh link followed — links expire with each render of the list."),
+  testNumber: z.string().optional().describe("The row's מספר הבדיקה field from list_records."),
+  date: z.string().optional().describe("The row's date (dd.MM.yyyy), when there is no test number."),
 });
 
 export async function getHospitalLabResultTool(args: z.infer<typeof hospitalLabLinkSchema>) {
   const client = await getClient();
-  const data = await client.getHospitalLabResult(
-    args.link,
-    args.hospital ? { select: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$ddlHospitalName", value: args.hospital } : undefined,
-  );
+  const data = await client.getHospitalLabResult({
+    link: args.link,
+    ...(args.hospital ? { context: { select: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$ddlHospitalName", value: args.hospital } } : {}),
+    testNumber: args.testNumber,
+    date: args.date,
+  });
   return { data, guidance: "Hospital lab result as parsed from the portal page. Preserve Hebrew names, units and ranges." };
 }

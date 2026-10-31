@@ -37,12 +37,14 @@ export interface ExportClient {
   getDocument(refOrToken: string): Promise<ClalitDocument>;
   listRecords(sourceId: string, options?: { fromDate?: string; toDate?: string }): Promise<RecordRow[]>;
   getRecordDocument(refOrToken: string): Promise<RecordDocument>;
-  getHospitalLabResult(link: string, context?: { select: string; value: string }): Promise<LabResultDetail>;
+  getHospitalLabResult(row: { link?: string; context?: { select: string; value: string }; testNumber?: string; date?: string; section?: string }): Promise<LabResultDetail>;
 }
 
 /** Where the files go. The CLI gives a folder; tests give memory. */
 export interface ExportSink {
   exists(rel: string): Promise<boolean>;
+  /** A JSON file written earlier, when the sink can read it back (so an empty answer never replaces a list that had rows). */
+  readJson?(rel: string): Promise<unknown>;
   putJson(rel: string, value: unknown): Promise<void>;
   putBytes(rel: string, bytes: Uint8Array): Promise<void>;
   putText(rel: string, text: string): Promise<void>;
@@ -62,6 +64,11 @@ export interface ExportOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Progress lines: section names, counts; never a value. */
   log?: (line: string) => void;
+  /**
+   * Only these sections: `labs`, `prescriptions`, `lab-orders`, a document source id, a record source id.
+   * Everything else is left as it is on disk. Default: everything.
+   */
+  only?: string[];
 }
 
 export interface ExportProblem {
@@ -159,9 +166,25 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
   };
   let stopped = false;
   let withoutDocument = 0;
+  const wanted = (id: string) => !options.only || options.only.includes(id);
+  /** Writes a list, unless it came back empty where an earlier run had rows: a portal hiccup must not erase an archive. */
+  const putList = async (rel: string, rows: unknown[], value: unknown): Promise<boolean> => {
+    if (rows.length === 0 && sink.readJson && (await sink.exists(rel))) {
+      const previous = (await sink.readJson(rel).catch(() => undefined)) as { data?: unknown[] } | undefined;
+      if (Array.isArray(previous?.data) && previous.data.length > 0) {
+        count(rel);
+        problem(rel, `the portal answered with no rows where the previous run had ${previous.data.length}; the previous list is kept`);
+        return false;
+      }
+    }
+    await putJson(rel, value);
+    return true;
+  };
 
   try {
     // ---- labs ----
+    if (!wanted("labs")) log("labs: skipped (--only)");
+    else {
     log("labs");
     const labs = await client.listLabs({ fromDate, toDate });
     const archived = labs.map(withoutToken);
@@ -214,8 +237,10 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
       if ((i + 1) % 10 === 0 || i === labs.length - 1) log(`  ${i + 1}/${labs.length}`);
     }
     if (withoutDocument) log(`  ${withoutDocument} ${withoutDocument === 1 ? "result has" : "results have"} no PDF on the portal (not an error)`);
+    }
 
     // ---- prescriptions ----
+    if (wanted("prescriptions")) {
     log("prescriptions");
     try {
       await sleep(pace);
@@ -226,8 +251,10 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
       if (e instanceof ReauthenticationRequired) throw e;
       problem("prescriptions/list.json", e);
     }
+    }
 
     // ---- lab orders ----
+    if (wanted("lab-orders")) {
     log("lab-orders");
     try {
       await sleep(pace);
@@ -253,9 +280,11 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
       if (e instanceof ReauthenticationRequired) throw e;
       problem("lab-orders/list.json", e);
     }
+    }
 
     // ---- documents: visit summaries, hospital summaries, medical approvals, Form 17 ----
     for (const source of DOCUMENT_SOURCES) {
+      if (!wanted(source.id)) continue;
       const folder = `documents/${source.id}`;
       log(source.id);
       let rows: DocumentListItem[];
@@ -263,7 +292,7 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
         await sleep(pace);
         // Each source is searched over the whole range the portal allows; --from/--to filter labs only.
         rows = await client.listDocuments(source.id);
-        await putJson(`${folder}/list.json`, wrap("document-list", rows.map(withoutToken), { title: source.title }));
+        await putList(`${folder}/list.json`, rows, wrap("document-list", rows.map(withoutToken), { title: source.title }));
         log(`  ${rows.length} ${rows.length === 1 ? "document" : "documents"}`);
       } catch (e) {
         if (e instanceof ReauthenticationRequired) throw e;
@@ -298,13 +327,14 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
 
     // ---- records: diagnoses, sensitivities, medications, imaging, hospital visits and labs, referrals ----
     for (const source of ALL_RECORD_SOURCES) {
+      if (!wanted(source.id)) continue;
       const folder = `records/${source.id}`;
       log(source.id);
       let rows: RecordRow[];
       try {
         await sleep(pace);
         rows = await client.listRecords(source.id);
-        await putJson(`${folder}/list.json`, wrap("record-list", rows.map(withoutToken), { title: source.title, ...(source.notes ? { notes: source.notes } : {}) }));
+        if (!(await putList(`${folder}/list.json`, rows, wrap("record-list", rows.map(withoutToken), { title: source.title, ...(source.notes ? { notes: source.notes } : {}) })))) continue;
         log(`  ${rows.length} ${rows.length === 1 ? "row" : "rows"}`);
       } catch (e) {
         if (e instanceof ReauthenticationRequired) throw e;
@@ -328,7 +358,14 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
           }
           try {
             await sleep(pace);
-            await putJson(rel, wrap("hospital-lab-result", await client.getHospitalLabResult(link, row.context), { list: withoutToken(row) }));
+            const detail = await client.getHospitalLabResult({
+              link,
+              context: row.context,
+              testNumber: row.fields["מספר הבדיקה"],
+              date: row.date,
+              section: row.fields["תחום המעבדה"],
+            });
+            await putJson(rel, wrap("hospital-lab-result", detail, { list: withoutToken(row) }));
           } catch (e) {
             if (e instanceof ReauthenticationRequired) throw e;
             problem(rel, e);

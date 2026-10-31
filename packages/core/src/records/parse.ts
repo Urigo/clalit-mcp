@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
 import { PORTAL_ORIGIN } from "../constants.js";
-import { ParseError, ReauthenticationRequired } from "../errors.js";
+import { ParseError, ReauthenticationRequired, UpstreamError } from "../errors.js";
 import { looksLikeLoginPage } from "../webforms.js";
 export { selectOptions } from "../documents/list.js";
 import { recordSource, type RecordSource } from "./sources.js";
@@ -57,6 +57,20 @@ export function decodeRecordRef(token: string): RecordRef {
   } catch {
     throw new ParseError("INVALID_REF", "Record ref token is invalid.");
   }
+}
+
+/** "תקלה זמנית. נסה שוב מאוחר יותר" shown where the results would be (not merely present in the page's hidden messages). */
+function looksLikePortalFault($: cheerio.CheerioAPI): boolean {
+  let shown = false;
+  $("span, div, p").each((_, el) => {
+    if (shown) return;
+    const text = $(el).text();
+    if (!/תקלה זמנית/.test(text) || text.length > 400) return;
+    const style = ($(el).attr("style") ?? "") + ($(el).parents("[style]").map((_, p) => $(p).attr("style")).get().join(";"));
+    const hidden = /display\s*:\s*none|visibility\s*:\s*hidden/i.test(style) || $(el).closest(".NoDisplay").length > 0;
+    if (!hidden) shown = true;
+  });
+  return shown;
 }
 
 /** The portal's own date form, whichever separator the grid used. */
@@ -115,6 +129,8 @@ export function parseRecordGridHtml(html: string, sourceId: string): RecordRow[]
   const grid = findGrid($, source);
   if (grid.length === 0) {
     if (looksLikeLoginPage(html)) throw new ReauthenticationRequired();
+    // The portal's own "temporary fault, try again later" in place of the grid is not an empty list.
+    if (looksLikePortalFault($)) throw new UpstreamError("PORTAL_TEMPORARY_FAULT", 200);
     // A page without the grid shows "no results" chrome instead; an empty list is the right reading.
     return [];
   }

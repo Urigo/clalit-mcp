@@ -96,6 +96,7 @@ const UPSTREAM_MESSAGES: Record<string, string> = {
   DOCUMENT_CHECK_FAILED: "Clalit could not prepare this document.",
   DETAIL_REDIRECTED: "The portal sent the result page elsewhere: the link had expired or its search was no longer the current one.",
   DETAIL_NOT_FOUND: "The row was not found in the hospital's list when the search was replayed.",
+  PORTAL_TEMPORARY_FAULT: "Clalit answered with its own 'temporary fault, try again later' in place of the results.",
   UPSTREAM_ERROR: "The Clalit request could not be completed.",
 };
 

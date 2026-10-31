@@ -79,6 +79,9 @@ describe("record grids", () => {
 
   test("a page without the grid is an empty list, a sign-in page is not", () => {
     expect(parseRecordGridHtml("<html><body><p>לא נמצאו תוצאות</p></body></html>", "diagnoses")).toEqual([]);
+    // The portal's visible "temporary fault" in place of the results is an error, not an empty list; its hidden copy is not.
+    expect(() => parseRecordGridHtml('<html><body><span id="x">תקלה זמנית. נסה שוב מאוחר יותר.</span></body></html>', "medicines_purchased")).toThrow(/temporary fault/);
+    expect(parseRecordGridHtml('<html><body><span style="display:none">תקלה זמנית. נסה שוב מאוחר יותר.</span><p>לא נמצאו</p></body></html>', "medicines_purchased")).toEqual([]);
     expect(() => parseRecordGridHtml('<html><body><form action="/onlineweb/general/infootplogin.aspx"></form></body></html>', "diagnoses")).toThrow();
   });
 

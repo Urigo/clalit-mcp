@@ -531,8 +531,10 @@ export class ClalitReaders {
         const html = await readText(response);
         return this.#walkRecordPager(url, source, html, fields, parse, onPage);
       };
+      // A pager source is asked for its whole range at once (its pager is walked); when the portal answers its
+      // own "temporary fault" for a range that wide, the range is halved until it answers.
       const rows = source.pagerLinkPrefix
-        ? await searchOnce(from, to)
+        ? await searchSplittingOnFault(searchOnce, from, to)
         : await searchSplittingRows(searchOnce, from, to);
       for (const row of rows) {
         const key = JSON.stringify([row.cells, row.ref?.actionUrl ?? ""]);
@@ -763,6 +765,26 @@ async function searchSplittingRows(
   const older = await searchSplittingRows(searchOnce, from, formatPortalDate(mid));
   const newer = await searchSplittingRows(searchOnce, formatPortalDate(mid + day), to);
   return [...newer, ...older];
+}
+
+/** Halve a range the portal cannot answer at once (PORTAL_TEMPORARY_FAULT), down to about two months. */
+async function searchSplittingOnFault(
+  searchOnce: (from: string, to: string) => Promise<RecordRow[]>,
+  from: string,
+  to: string,
+): Promise<RecordRow[]> {
+  try {
+    return await searchOnce(from, to);
+  } catch (e) {
+    const start = parsePortalDate(from);
+    const end = parsePortalDate(to);
+    const day = 86_400_000;
+    if (!(e instanceof UpstreamError && e.code === "PORTAL_TEMPORARY_FAULT") || start === undefined || end === undefined || end - start < 60 * day) throw e;
+    const mid = start + Math.floor((end - start) / day / 2) * day;
+    const older = await searchSplittingOnFault(searchOnce, from, formatPortalDate(mid));
+    const newer = await searchSplittingOnFault(searchOnce, formatPortalDate(mid + day), to);
+    return [...newer, ...older];
+  }
 }
 
 /** `dd.MM.yyyy` one year before the given portal date (the referrals page's whole range). */

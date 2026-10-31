@@ -52,6 +52,21 @@ import {
   type DocumentRef,
   type ListDocumentsOptions,
 } from "./documents/index.js";
+import {
+  decodeRecordRef,
+  encodeRecordRef,
+  nextRecordPagerPage,
+  parseRecordGridHtml,
+  parseReferralsHtml,
+  recordSource,
+  referralsHaveNextPage,
+  REFERRALS_NEXT_TARGET,
+  REFERRALS_SOURCE_ID,
+  type ListRecordsOptions,
+  type RecordDocument,
+  type RecordRef,
+  type RecordRow,
+} from "./records/index.js";
 import { assertPdfBytes, filenameFromContentDisposition } from "./labs/document.js";
 import type { ClalitTransport } from "./transport.js";
 import { readBytes, readText } from "./transport.js";
@@ -454,6 +469,163 @@ export class ClalitReaders {
       bytes,
     };
   }
+
+  /**
+   * listRecords — one record source (diagnoses, sensitivities, chronic
+   * medications, purchases, medication approvals, imaging, hospital visits
+   * and labs, referrals): GET the page, POST its date-range search when it has
+   * one (once per dropdown option for fan-out sources), walk the pager when
+   * there is one, and otherwise split a full page by date as the document
+   * grids are. Rows are kept as shown; refs only for rows the portal gives a
+   * PDF action to.
+   */
+  async listRecords(sourceId: string, options: ListRecordsOptions = {}): Promise<RecordRow[]> {
+    this.transport.assertNotIdleExpired();
+    const source = recordSource(sourceId);
+    if (!source) throw new ParseError("UNKNOWN_SOURCE", "Unknown record source.");
+    if (source.id === REFERRALS_SOURCE_ID) return this.#listReferrals(options);
+    const url = PORTAL_ORIGIN + source.path;
+    const parse = (html: string) => parseRecordGridHtml(html, source.id);
+    const page = await readText(await this.transport.request(url));
+    const search = source.search;
+    if (!search) return this.#walkRecordPager(url, source, page, {}, parse);
+
+    const fanOut = search.fanOutSelect ? selectOptions(page, search.fanOutSelect) : [undefined];
+    const from = options.fromDate ?? search.minDate;
+    const to = options.toDate ?? todayPortalDate();
+    const collected: RecordRow[] = [];
+    const seen = new Set<string>();
+    for (const option of fanOut) {
+      const fixed = {
+        ...search.fields,
+        ...(option && search.fanOutSelect ? { [search.fanOutSelect]: option[0] } : {}),
+      };
+      const searchOnce = async (rangeFrom: string, rangeTo: string): Promise<RecordRow[]> => {
+        const fields = { ...fixed, [search.fromField]: rangeFrom, [search.toField]: rangeTo };
+        const fresh = await readText(await this.transport.request(url));
+        const state = extractWebFormsState(fresh);
+        const cleanState = { ...state, hidden: omitFamilySliderFields(state.hidden) };
+        const response = await this.transport.request(url, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: buildPostBackBody(cleanState, fields, search.submit, ""),
+        });
+        const html = await readText(response);
+        return this.#walkRecordPager(url, source, html, fields, parse);
+      };
+      const rows = source.pagerLinkPrefix
+        ? await searchOnce(from, to)
+        : await searchSplittingRows(searchOnce, from, to);
+      for (const row of rows) {
+        const key = JSON.stringify([row.cells, row.ref?.actionUrl ?? ""]);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        // The hospital is the search, not a grid column; keep it with the row.
+        collected.push(option ? { ...row, fields: { "בית חולים": option[1], ...row.fields }, cells: [option[1], ...row.cells] } : row);
+      }
+    }
+    return collected;
+  }
+
+  /** Follows a grid's pager links, re-posting the search fields each time. */
+  async #walkRecordPager(
+    url: string,
+    source: NonNullable<ReturnType<typeof recordSource>>,
+    firstHtml: string,
+    fields: Record<string, string>,
+    parse: (html: string) => RecordRow[],
+  ): Promise<RecordRow[]> {
+    const rows = parse(firstHtml);
+    let html = firstHtml;
+    let current = 1;
+    for (let pages = 1; pages < LABS_LIST_MAX_PAGES; pages++) {
+      const next = nextRecordPagerPage(html, source, current);
+      if (next === undefined) break;
+      const state = extractWebFormsState(html);
+      const cleanState = { ...state, hidden: omitFamilySliderFields(state.hidden) };
+      const response = await this.transport.request(url, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: buildPostBackBody(cleanState, fields, `${source.pagerLinkPrefix}${next}`, ""),
+      });
+      html = await readText(response);
+      rows.push(...parse(html));
+      current = next;
+    }
+    return rows;
+  }
+
+  /** Referrals: a repeater with its own "next" pager; the portal keeps the last year only. */
+  async #listReferrals(options: ListRecordsOptions): Promise<RecordRow[]> {
+    const source = recordSource(REFERRALS_SOURCE_ID)!;
+    const search = source.search!;
+    const url = PORTAL_ORIGIN + source.path;
+    const page = await readText(await this.transport.request(url));
+    const to = options.toDate ?? todayPortalDate();
+    const from = options.fromDate ?? yearBeforePortalDate(to);
+    const fields = { ...search.fields, [search.fromField]: from, [search.toField]: to };
+    let state = extractWebFormsState(page);
+    let response = await this.transport.request(url, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: buildPostBackBody({ ...state, hidden: omitFamilySliderFields(state.hidden) }, fields, search.submit, ""),
+    });
+    let html = await readText(response);
+    const rows = parseReferralsHtml(html);
+    const seen = new Set(rows.map((r) => r.ref?.actionUrl ?? JSON.stringify(r.fields)));
+    for (let pages = 1; pages < LABS_LIST_MAX_PAGES && referralsHaveNextPage(html); pages++) {
+      state = extractWebFormsState(html);
+      response = await this.transport.request(url, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: buildPostBackBody({ ...state, hidden: omitFamilySliderFields(state.hidden) }, fields, REFERRALS_NEXT_TARGET, ""),
+      });
+      html = await readText(response);
+      let added = 0;
+      for (const row of parseReferralsHtml(html)) {
+        const key = row.ref?.actionUrl ?? JSON.stringify(row.fields);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push(row);
+        added++;
+      }
+      if (added === 0) break;
+    }
+    return rows;
+  }
+
+  /**
+   * getRecordDocument — GET (or POST, with the row's action data) the row's
+   * action URL, which selects the document server-side, then GET the source's
+   * PDF stream. Refs only from listRecords.
+   */
+  async getRecordDocument(refOrToken: RecordRef | string): Promise<RecordDocument> {
+    this.transport.assertNotIdleExpired();
+    const ref = decodeRecordRef(typeof refOrToken === "string" ? refOrToken : encodeRecordRef(refOrToken));
+    const source = recordSource(ref.source)!;
+    if (!source.pdfPath) throw new ParseError("NO_PDF_SOURCE", "This record source has no PDFs.");
+    const exists = await this.transport.request(PORTAL_ORIGIN + ref.actionUrl, {
+      allowLoginHtml: true,
+      ...(ref.actionData
+        ? { method: "POST", headers: { "content-type": "application/json; charset=utf-8" }, body: ref.actionData }
+        : {}),
+    });
+    const peek = await exists.text();
+    if (exists.status === 404 || /^\s*(false|0|null)\s*$/i.test(peek)) throw new UpstreamError("NO_DOCUMENT", exists.status);
+    if (!exists.ok) throw new UpstreamError("DOCUMENT_CHECK_FAILED", exists.status);
+    const sep = source.pdfPath.includes("?") ? "&" : "?";
+    const pdf = await this.transport.request(`${PORTAL_ORIGIN}${source.pdfPath}${sep}v=${Date.now()}`, {
+      allowLoginHtml: true,
+    });
+    const bytes = await readBytes(pdf);
+    assertPdfBytes(bytes);
+    return {
+      ref,
+      contentType: pdf.headers.get("content-type") || "application/pdf",
+      filename: filenameFromContentDisposition(pdf.headers.get("content-disposition"), `clalit-${ref.source}.pdf`),
+      bytes,
+    };
+  }
 }
 
 /**
@@ -477,6 +649,30 @@ async function searchSplitting(
   const older = await searchSplitting(searchOnce, from, formatPortalDate(mid));
   const newer = await searchSplitting(searchOnce, formatPortalDate(mid + day), to);
   return [...newer, ...older];
+}
+
+/** The same split, for record grids without a pager. */
+async function searchSplittingRows(
+  searchOnce: (from: string, to: string) => Promise<RecordRow[]>,
+  from: string,
+  to: string,
+): Promise<RecordRow[]> {
+  const rows = await searchOnce(from, to);
+  const start = parsePortalDate(from);
+  const end = parsePortalDate(to);
+  if (rows.length < DOCUMENT_PAGE_ROWS || start === undefined || end === undefined || end <= start) return rows;
+  const day = 86_400_000;
+  const mid = start + Math.floor((end - start) / day / 2) * day;
+  const older = await searchSplittingRows(searchOnce, from, formatPortalDate(mid));
+  const newer = await searchSplittingRows(searchOnce, formatPortalDate(mid + day), to);
+  return [...newer, ...older];
+}
+
+/** `dd.MM.yyyy` one year before the given portal date (the referrals page's whole range). */
+function yearBeforePortalDate(to: string): string {
+  const ms = parsePortalDate(to) ?? Date.now();
+  const d = new Date(ms);
+  return formatPortalDate(Date.UTC(d.getUTCFullYear() - 1, d.getUTCMonth(), d.getUTCDate()));
 }
 
 function parsePortalDate(value: string): number | undefined {

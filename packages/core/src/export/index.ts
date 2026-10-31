@@ -17,6 +17,8 @@ import { createHash } from "node:crypto";
 import { ClalitError, ReauthenticationRequired } from "../errors.js";
 import { DOCUMENT_SOURCES } from "../documents/sources.js";
 import type { ClalitDocument, DocumentListItem } from "../documents/types.js";
+import { ALL_RECORD_SOURCES } from "../records/sources.js";
+import type { RecordDocument, RecordRow } from "../records/types.js";
 import type { LabDocument, LabResultDetail } from "../labs/types.js";
 import type { LabOrderDetail } from "../lab-orders/types.js";
 import type { PrescriptionListItem } from "../prescriptions/types.js";
@@ -33,6 +35,8 @@ export interface ExportClient {
   getLabOrder(refOrToken: string): Promise<LabOrderDetail>;
   listDocuments(sourceId: string, options?: { fromDate?: string; toDate?: string }): Promise<DocumentListItem[]>;
   getDocument(refOrToken: string): Promise<ClalitDocument>;
+  listRecords(sourceId: string, options?: { fromDate?: string; toDate?: string }): Promise<RecordRow[]>;
+  getRecordDocument(refOrToken: string): Promise<RecordDocument>;
 }
 
 /** Where the files go. The CLI gives a folder; tests give memory. */
@@ -290,6 +294,48 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
         if ((i + 1) % 10 === 0 || i === rows.length - 1) log(`  ${i + 1}/${rows.length}`);
       }
     }
+
+    // ---- records: diagnoses, sensitivities, medications, imaging, hospital visits and labs, referrals ----
+    for (const source of ALL_RECORD_SOURCES) {
+      const folder = `records/${source.id}`;
+      log(source.id);
+      let rows: RecordRow[];
+      try {
+        await sleep(pace);
+        rows = await client.listRecords(source.id);
+        await putJson(`${folder}/list.json`, wrap("record-list", rows.map(withoutToken), { title: source.title, ...(source.notes ? { notes: source.notes } : {}) }));
+        log(`  ${rows.length} ${rows.length === 1 ? "row" : "rows"}`);
+      } catch (e) {
+        if (e instanceof ReauthenticationRequired) throw e;
+        problem(`${folder}/list.json`, e);
+        continue;
+      }
+      if (!documents) continue;
+      const seenPdfs = new Set<string>();
+      const withPdf = rows.filter((r) => r.refToken && r.ref);
+      for (let i = 0; i < withPdf.length; i++) {
+        const row = withPdf[i]!;
+        let name = stem(isoDate(row.date), shortHash(row.ref!.actionUrl, row.ref!.actionData ?? ""), safeTitle(Object.values(row.fields).slice(0, 3).join("-")));
+        if (seenPdfs.has(name)) name += "-" + i;
+        seenPdfs.add(name);
+        const pdf = `${folder}/files/${name}.pdf`;
+        if (await sink.exists(pdf)) {
+          count(pdf);
+          continue;
+        }
+        try {
+          await sleep(pace);
+          const doc = await client.getRecordDocument(row.refToken!);
+          await sink.putBytes(pdf, doc.bytes);
+          count(pdf);
+        } catch (e) {
+          if (e instanceof ReauthenticationRequired) throw e;
+          if (e instanceof ClalitError && e.code === "NO_DOCUMENT") withoutDocument += 1;
+          else problem(pdf, e);
+        }
+        if ((i + 1) % 10 === 0 || i === withPdf.length - 1) log(`  ${i + 1}/${withPdf.length} PDFs`);
+      }
+    }
   } catch (e) {
     if (!(e instanceof ReauthenticationRequired)) throw e;
     stopped = true;
@@ -306,7 +352,7 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
 function readme(r: { startedAt: string; folders: Record<string, number>; problems: ExportProblem[]; stopped: boolean; fromDate: string; toDate: string; documents: boolean; withoutDocument: number }): string {
   const has = (f: string) => (r.folders[f] ?? 0) > 0;
   const failedIn = new Set(r.problems.map((p) => p.where.split("/")[0]));
-  const missing = ["labs", "prescriptions", "lab-orders", "documents"].filter((f) => !has(f));
+  const missing = ["labs", "prescriptions", "lab-orders", "documents", "records"].filter((f) => !has(f));
   const files = (n: number | undefined) => `${n ?? 0} ${n === 1 ? "file" : "files"}`;
   const absent = missing.map((f) => `\`${f}/\`` + (failedIn.has(f) ? " (collecting it failed — see export-errors.json)" : " (nothing on record, or not reached)")).join(", ");
   return `# Clalit health records export
@@ -349,11 +395,21 @@ ${has("documents") ? `
 (hospital discharge and summary letters; the first detail is the hospital), \`medical_approvals/\` אישורים רפואיים
 (medical certificates and approvals), \`form17/\` התחייבויות — Form 17 commitments, which the portal keeps for one year only.
 The PDFs are the clinical text; \`list.json\` only says which exist.` : ""}
+${has("records") ? `
+**\`records/\`** · ${files(r.folders.records)} — one folder per portal page, each with \`list.json\` (\`data[]\`: \`date\`, \`fields\` — the
+row's cells keyed by the portal's own Hebrew column headers, \`cells\` in column order, \`items\` for a referral's services,
+\`links\` when a row points at a detail page) and, where the portal offers one, \`files/<date>_<id>_<fields>.pdf\`:
+\`diagnoses/\` האבחנות שלי, \`sensitivities/\` הרגישויות שלי (allergies and reactions), \`chronic_medications/\` תרופות קבועות
+(the regular medication list), \`medicines_purchased/\` תרופות שנקנו (pharmacy purchases since 08.2008 — what was actually
+dispensed), \`medication_approvals/\` אישורי תרופות, \`imaging_clinics/\` · \`imaging_hospitals/\` · \`imaging_external/\` פענוחי
+דימות (imaging reports; the PDF is the radiologist's text), \`hospital_visits/\` ביקורים בבתי החולים של כללית, \`hospital_labs/\`
+בדיקות מעבדה מבתי חולים (hospital lab tests, separate from \`labs/\`), \`referrals/\` הפניות (the last year only; the PDF is the referral).
+Each \`list.json\` carries the portal's own \`notes\` on what that page leaves out.` : ""}
 ${missing.length ? `\nThis export has no ${absent}.\n` : ""}
 ## What is not here
 
-Imaging, vaccinations, general referrals (MedicalReferrals.aspx), diagnoses and the medical file itself: this client does
-not read them (Clalit Online shows them, but no reader exists yet). An absence here is not an absence in your history.
+Vaccinations and blood type (React pages the portal fills from an API not read yet), appointments, the medical file itself,
+and anything the portal marks sensitive or confidential: not here. An absence here is not an absence in your history.
 
 ## What this export failed to collect
 

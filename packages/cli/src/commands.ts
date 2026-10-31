@@ -88,11 +88,25 @@ export const COMMANDS: Record<string, Command> = {
     description: "Selects the document through the row's own portal action URL, then streams the source's PDF, using a ref token from `documents`.",
     options: ["ref", "out"],
   },
+  records: {
+    usage: "records --source ID [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--json]",
+    summary: "List one record source: diagnoses, sensitivities, medications, imaging, hospital visits and labs, referrals.",
+    description:
+      "Sources: diagnoses (האבחנות שלי), sensitivities (הרגישויות שלי), chronic_medications (תרופות קבועות), medicines_purchased (תרופות שנקנו, since 08.2008), medication_approvals (אישורי תרופות), imaging_clinics / imaging_hospitals / imaging_external (פענוחי דימות, with the report PDF), hospital_visits (ביקורים בבתי החולים של כללית), hospital_labs (בדיקות מעבדה מבתי חולים), referrals (הפניות, last year only, with the PDF). Rows are kept as the portal shows them: the grid's Hebrew headers are the keys. Pages with a date-range search are asked for their whole range unless --from/--to say otherwise; per-hospital pages are searched once per hospital; a pager is walked, and a full page without one is split by date.",
+    options: ["source", "from", "to", "json"],
+    notes: "Rows with a PDF carry an opaque ref token for `record-document`. Never invent action URLs. Vaccinations and blood type are React pages the portal fills from an API that is not read yet.",
+  },
+  "record-document": {
+    usage: "record-document --ref TOKEN --out FILE",
+    summary: "Download one record's PDF (an imaging report, a referral).",
+    description: "Selects the document through the row's own portal action URL, then streams the source's PDF, using a ref token from `records`.",
+    options: ["ref", "out"],
+  },
   export: {
     usage: "export [--out DIR] [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--no-documents] [--current-only]",
     summary: "Save everything this client can read into one folder.",
     description:
-      "Writes ./clalit-export-<today>/ (or under --out): labs/ (list, one file per result, the PDFs), prescriptions/, lab-orders/, documents/ (visit summaries, hospital summaries, medical approvals, Form 17: a list and the PDFs per source), plus README.md (the export's data dictionary, written for an AI assistant), export-errors.json, CLAUDE.md and AGENTS.md. The labs list is asked for from 01.01.1990 to today unless --from/--to say otherwise (they filter labs only; prescriptions, lab orders and documents are always exported in full). A rerun into the same folder writes nothing it already has.",
+      "Writes ./clalit-export-<today>/ (or under --out): labs/ (list, one file per result, the PDFs), prescriptions/, lab-orders/, documents/ (visit summaries, hospital summaries, medical approvals, Form 17: a list and the PDFs per source), records/ (diagnoses, sensitivities, chronic medications, purchased medicines, medication approvals, imaging from clinics, hospitals and external institutes, hospital visits and labs, referrals: a list per source, the imaging and referral PDFs), plus README.md (the export's data dictionary, written for an AI assistant), export-errors.json, CLAUDE.md and AGENTS.md. The labs list is asked for from 01.01.1990 to today unless --from/--to say otherwise (they filter labs only; prescriptions, lab orders, documents and records are always exported in full). A rerun into the same folder writes nothing it already has.",
     options: ["out", "from", "to", "no-documents", "current-only"],
     notes:
       "Requests go one at a time, 300 ms apart. An item that fails is listed in export-errors.json and the export goes on (a result the portal has no PDF for is skipped, not listed); an ended session stops it and keeps what was collected. --current-only leaves expired prescriptions out; --no-documents skips every PDF (lab results and documents) and keeps the lists. Read-only, own record only.",
@@ -115,7 +129,7 @@ export const COMMANDS: Record<string, Command> = {
     usage: "mcp",
     summary: "Run the stdio MCP server.",
     description:
-      "Exposes list_labs, get_lab_result, get_lab_document, list_prescriptions, get_prescription_issue_status, list_lab_orders, get_lab_order, list_documents, get_document, plus clalit_login, clalit_session_status and clalit_logout. While it runs it keeps the Clalit session alive and serves its own sign-in page (see docs/MCP.md).",
+      "Exposes list_labs, get_lab_result, get_lab_document, list_prescriptions, get_prescription_issue_status, list_lab_orders, get_lab_order, list_documents, get_document, list_records, get_record_document, plus clalit_login, clalit_session_status and clalit_logout. While it runs it keeps the Clalit session alive and serves its own sign-in page (see docs/MCP.md).",
     options: [],
   },
   help: {

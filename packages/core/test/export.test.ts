@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import { ReauthenticationRequired, UpstreamError } from "../src/errors.js";
 import { exportAll, exportName, isoDate, safeTitle, shortHash, type ExportClient, type ExportSink } from "../src/export/index.js";
 import { decodeDocumentRef, encodeDocumentRef } from "../src/documents/index.js";
+import { decodeRecordRef, encodeRecordRef } from "../src/records/index.js";
 import { encodeLabRef, parseLabDetailHtml, parseLabsListHtml } from "../src/labs/index.js";
 import { parseLabOrderDetailHtml, parseLabOrdersListHtml, encodeLabOrderRef } from "../src/lab-orders/index.js";
 import { parsePrescriptionsListHtml } from "../src/prescriptions/index.js";
@@ -83,6 +84,17 @@ function fakeClient(opts: { failDocument?: boolean; noDocument?: boolean; endSes
       if (opts.failDocument) throw new Error("The Clalit request could not be completed (network error).");
       return { ref: decodeDocumentRef(token), contentType: "application/pdf", filename: "visit.pdf", bytes: new Uint8Array(Buffer.from("%PDF-1.4 visit")) };
     },
+    async listRecords(sourceId) {
+      calls.push("listRecords " + sourceId);
+      if (sourceId !== "imaging_clinics") return [];
+      const ref = { source: sourceId, actionUrl: "/OnlineWeb/api/Rentgen/GetPDFDocument/1/1000" };
+      return [{ source: sourceId, date: "17.05.2026", fields: { "סוג הבדיקה": "צילום", "הגורם המפנה": "רופא" }, cells: ["17.05.2026", "צילום", "רופא"], ref, refToken: encodeRecordRef(ref) }];
+    },
+    async getRecordDocument(token) {
+      calls.push("getRecordDocument");
+      if (opts.failDocument) throw new Error("The Clalit request could not be completed (network error).");
+      return { ref: decodeRecordRef(token), contentType: "application/pdf", filename: "imaging.pdf", bytes: new Uint8Array(Buffer.from("%PDF-1.4 imaging")) };
+    },
   };
   return { client, calls, labs, orders };
 }
@@ -122,6 +134,9 @@ describe("exportAll", () => {
     expect(visitPdfs[0]).toMatch(/^documents\/visit_summaries\/files\/2024-05-03_[0-9a-f]{8}_\S+\.pdf$/);
     for (const row of sink.json("documents/visit_summaries/list.json").data) expect(row).not.toHaveProperty("refToken");
     expect(report.folders.documents).toBe(5);
+    expect(names.filter((n) => n.startsWith("records/") && n.endsWith("list.json"))).toHaveLength(11);
+    expect(names.filter((n) => n.startsWith("records/imaging_clinics/files/"))).toHaveLength(1);
+    expect(report.folders.records).toBe(12);
 
     // File names: the list date as yyyy-mm-dd, a stable short id from the opaque ref, the test's name.
     const detail = names.filter((n) => n.startsWith("labs/details/")).at(-1)!; // sorted: the newest date last, the list's first row
@@ -144,6 +159,7 @@ describe("exportAll", () => {
     expect(readme).toContain("export layout 1");
     expect(readme).toContain("`labs/`");
     expect(readme).toContain("`documents/`");
+    expect(readme).toContain("`records/`");
     expect(readme).toContain("01.01.1990 to 14.10.2026");
     expect(readme).toContain("Nothing: every request was answered.");
     expect(report.folders).toMatchObject({ labs: 1 + 2 * labs.filter((l) => l.hasDetail).length, prescriptions: 1 });
@@ -153,7 +169,7 @@ describe("exportAll", () => {
     const before = calls.length;
     const again = await exportAll(client, sink, clock);
     expect(again.problems).toEqual([]);
-    expect(calls.slice(before).filter((c) => c.startsWith("getLabResult") || c.startsWith("getLabDocument") || c === "getDocument")).toEqual([]);
+    expect(calls.slice(before).filter((c) => c.startsWith("getLabResult") || c.startsWith("getLabDocument") || c === "getDocument" || c === "getRecordDocument")).toEqual([]);
   });
 
   test("a result the portal offers no PDF for is skipped without a request, on a rerun too, and is not a problem", async () => {
@@ -184,8 +200,9 @@ describe("exportAll", () => {
     const report = await exportAll(client, sink, clock);
     expect(report.withoutDocument).toBe(0);
     // Every lab PDF and the one visit summary fail; the lists and details are still written.
-    expect(report.problems).toHaveLength(labs.filter((l) => l.hasDetail).length + 1);
-    expect(report.problems.at(-1)!.where).toMatch(/^documents\/visit_summaries\/files\/.*\.pdf$/);
+    expect(report.problems).toHaveLength(labs.filter((l) => l.hasDetail).length + 2);
+    expect(report.problems.at(-2)!.where).toMatch(/^documents\/visit_summaries\/files\/.*\.pdf$/);
+    expect(report.problems.at(-1)!.where).toMatch(/^records\/imaging_clinics\/files\/.*\.pdf$/);
     expect(report.problems[0]).toMatchObject({ what: "The Clalit request could not be completed (network error).", at: "2026-10-14T10:00:00.000Z" });
     expect(report.problems[0]!.where).toMatch(/^labs\/files\/.*\.pdf$/);
     expect([...sink.files.keys()].filter((n) => n.startsWith("labs/details/"))).toHaveLength(labs.filter((l) => l.hasDetail).length);

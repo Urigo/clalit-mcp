@@ -1,10 +1,13 @@
 import {
   connect,
   decodeDocumentRef,
+  decodeRecordRef,
   decodeLabOrderRef,
   decodeLabRef,
   documentSource,
   DOCUMENT_SOURCE_IDS,
+  recordSource,
+  RECORD_SOURCE_IDS,
   exportAll,
   exportName,
   ReauthenticationRequired,
@@ -282,6 +285,44 @@ export async function runCli(args: string[]): Promise<number> {
         return 0;
       } catch (err) {
         console.error(err instanceof Error ? err.message : "document failed");
+        return 1;
+      }
+    }
+    case "records": {
+      const source = flag(rest, "source");
+      if (!source || !recordSource(source)) {
+        console.error(`Usage: clalit-mcp records --source (${RECORD_SOURCE_IDS.join("|")}) [--from dd.MM.yyyy] [--to dd.MM.yyyy] [--json]`);
+        return 2;
+      }
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const data = await client.listRecords(source, { fromDate: flag(rest, "from"), toDate: flag(rest, "to") });
+        if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
+        else for (const row of data) console.log([...row.cells, row.refToken ?? ""].join("\t"));
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "records failed");
+        return 1;
+      }
+    }
+    case "record-document": {
+      const ref = flag(rest, "ref");
+      const out = flag(rest, "out");
+      if (!ref || !out) {
+        console.error("Usage: clalit-mcp record-document --ref TOKEN --out FILE");
+        return 2;
+      }
+      decodeRecordRef(ref);
+      const client = await requireClient();
+      if (!client) return 3;
+      try {
+        const doc = await client.getRecordDocument(ref);
+        await writeFile(out, doc.bytes);
+        console.log(`Wrote ${out} (${doc.bytes.byteLength} bytes)`);
+        return 0;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : "record-document failed");
         return 1;
       }
     }

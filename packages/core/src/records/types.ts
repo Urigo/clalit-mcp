@@ -1,0 +1,39 @@
+/** Opaque coordinates of one record's PDF: the source and its row's action URL. */
+export interface RecordRef {
+  source: string;
+  actionUrl: string;
+  /** Row's `data-actiondata` JSON; when present the action URL is POSTed with it. */
+  actionData?: string;
+}
+
+/** One row of a record source's grid, kept as the portal shows it. */
+export interface RecordRow {
+  source: string;
+  /** The row's first `dd.MM.yyyy` cell, when there is one. */
+  date?: string;
+  /** Header → cell text, for the headed columns; keys are the portal's Hebrew headers. */
+  fields: Record<string, string>;
+  /** Every cell's text, in column order (action columns included, usually empty). */
+  cells: string[];
+  /** Same-origin page links found in the row (a detail page, say), as portal paths. */
+  links?: string[];
+  /** Sub-rows of a composite record (a referral's services). */
+  items?: Record<string, string>[];
+  /** Present when the row has a PDF behind the portal's download flow. */
+  ref?: RecordRef;
+  refToken?: string;
+}
+
+export interface ListRecordsOptions {
+  /** Inclusive from-date (`dd.MM.yyyy`). Defaults to the source's earliest date. */
+  fromDate?: string;
+  /** Inclusive to-date (`dd.MM.yyyy`). Defaults to today. */
+  toDate?: string;
+}
+
+export interface RecordDocument {
+  ref: RecordRef;
+  contentType: string;
+  filename: string;
+  bytes: Uint8Array;
+}

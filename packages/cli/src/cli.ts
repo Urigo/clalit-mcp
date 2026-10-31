@@ -7,6 +7,7 @@ import {
   DOCUMENT_SOURCE_IDS,
   exportAll,
   exportName,
+  ReauthenticationRequired,
 } from "@clalit/core";
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -305,6 +306,43 @@ export async function runCli(args: string[]): Promise<number> {
         console.error(err instanceof Error ? err.message : "export failed");
         return 1;
       }
+    }
+    case "keep-alive": {
+      // Hold the session open from a second terminal while the first one works (export, sitemap, …).
+      const everyRaw = flag(rest, "every");
+      const everyMin = everyRaw ? Number(everyRaw) : 4;
+      if (!Number.isFinite(everyMin) || everyMin < 1 || everyMin > 9) {
+        console.error("Usage: clalit-mcp keep-alive [--every MINUTES]   (1–9; the portal drops a session after ~10 idle minutes)");
+        return 2;
+      }
+      const client = await requireClient();
+      if (!client) return 3;
+      const { saveSession } = await import("./store.js");
+      let stop = false;
+      process.once("SIGINT", () => {
+        stop = true;
+      });
+      console.error(`Keeping the Clalit session alive every ${everyMin} min; Ctrl-C to stop.`);
+      while (!stop) {
+        try {
+          await client.refreshSession();
+          await client.checkSession();
+          await saveSession(await client.exportSession());
+          console.error(`${new Date().toLocaleTimeString("en-GB")} alive`);
+        } catch (err) {
+          console.error(err instanceof Error ? err.message : "keep-alive failed");
+          if (err instanceof ReauthenticationRequired) return 3;
+        }
+        await new Promise<void>((r) => {
+          const t = setTimeout(r, everyMin * 60_000);
+          process.once("SIGINT", () => {
+            clearTimeout(t);
+            r();
+          });
+        });
+      }
+      console.error("Stopped; the session itself is left as it is.");
+      return 0;
     }
     case "refresh-session": {
       const client = await requireClient();

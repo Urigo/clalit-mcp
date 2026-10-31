@@ -160,6 +160,11 @@ while (queue.length && pages.length + errors.length < max) {
   try {
     const res = await transport.request(PORTAL_ORIGIN + path, { allowLoginHtml: true });
     const html = await res.text();
+    const location = res.headers.get("location") ?? "";
+    if ((res.status === 301 || res.status === 302) && /login|otp|infootp/i.test(location)) {
+      console.error(`${res.status} ${path} → ${location}\nThe Clalit session has ended (it idles out after ~10 minutes). Sign in again, keep it alive with \`keep-alive\` in a second terminal, and rerun.`);
+      process.exit(3);
+    }
     const s = shape(path, res.status, html);
     pages.push(s);
     if (keepRaw) {

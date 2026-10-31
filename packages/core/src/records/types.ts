@@ -22,6 +22,12 @@ export interface RecordRow {
   /** Present when the row has a PDF behind the portal's download flow. */
   ref?: RecordRef;
   refToken?: string;
+  /**
+   * The search this row came out of, when the page searches one dropdown value at a time (the hospital):
+   * the select's field name and the option's value. A detail page opens only while that search is the
+   * portal's current one, so readers of a row's detail replay it first.
+   */
+  context?: { select: string; value: string };
 }
 
 export interface ListRecordsOptions {

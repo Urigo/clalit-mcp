@@ -151,6 +151,7 @@ describe("ClalitReaders listRecords", () => {
     expect(rows).toHaveLength(3);
     expect(rows[0]!.fields["בית חולים"]).toBe("בית חולים א");
     expect(rows[1]!.cells[0]).toBe("בית חולים ב");
+    expect(rows[1]!.context).toEqual({ select: "ctl00$ctl00$cphBody$bodyContent$ddlHospitalName", value: "2" });
     expect(rows[1]!.ref?.actionUrl).toBe("/OnlineWeb/api/Rentgen/GetPDFDocument/03042025/1000");
     expect(posts).toHaveLength(2);
     expect(posts[0]!["__EVENTTARGET"]).toBe("ctl00$ctl00$cphBody$bodyContent$btnShow$lnkSubButton");

@@ -94,6 +94,7 @@ const UPSTREAM_MESSAGES: Record<string, string> = {
   RESPONSE_TOO_LARGE: "The Clalit response was too large to process.",
   NO_DOCUMENT: "The portal offers no PDF for this result.",
   DOCUMENT_CHECK_FAILED: "Clalit could not prepare this document.",
+  DETAIL_REDIRECTED: "The portal sent the result page elsewhere: its search is no longer the current one. Open the list for that hospital again and retry.",
   UPSTREAM_ERROR: "The Clalit request could not be completed.",
 };
 

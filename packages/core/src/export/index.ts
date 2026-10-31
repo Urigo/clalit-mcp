@@ -37,7 +37,7 @@ export interface ExportClient {
   getDocument(refOrToken: string): Promise<ClalitDocument>;
   listRecords(sourceId: string, options?: { fromDate?: string; toDate?: string }): Promise<RecordRow[]>;
   getRecordDocument(refOrToken: string): Promise<RecordDocument>;
-  getHospitalLabResult(link: string): Promise<LabResultDetail>;
+  getHospitalLabResult(link: string, context?: { select: string; value: string }): Promise<LabResultDetail>;
 }
 
 /** Where the files go. The CLI gives a folder; tests give memory. */
@@ -328,7 +328,7 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
           }
           try {
             await sleep(pace);
-            await putJson(rel, wrap("hospital-lab-result", await client.getHospitalLabResult(link), { list: withoutToken(row) }));
+            await putJson(rel, wrap("hospital-lab-result", await client.getHospitalLabResult(link, row.context), { list: withoutToken(row) }));
           } catch (e) {
             if (e instanceof ReauthenticationRequired) throw e;
             problem(rel, e);

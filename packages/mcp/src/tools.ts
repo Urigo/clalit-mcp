@@ -296,6 +296,7 @@ export async function listRecordsTool(args: z.infer<typeof listRecordsSchema>) {
       fields: row.fields,
       ...(row.items ? { items: row.items } : {}),
       ...(row.links ? { links: row.links } : {}),
+      ...(row.context ? { context: row.context } : {}),
       ...(row.refToken ? { ref: row.refToken, next: [{ tool: "get_record_document", arguments: { ref: row.refToken } }] } : {}),
     })),
     guidance:
@@ -320,10 +321,14 @@ export async function getRecordDocumentTool(args: z.infer<typeof recordRefSchema
 
 export const hospitalLabLinkSchema = z.object({
   link: z.string().describe("A hospital_labs row's link from list_records (HospitalsLabTestDetails.aspx?s&d&h). Never invent one."),
+  hospital: z.string().optional().describe("The row's context.value from list_records (the hospital option); the search is replayed first so the page answers."),
 });
 
 export async function getHospitalLabResultTool(args: z.infer<typeof hospitalLabLinkSchema>) {
   const client = await getClient();
-  const data = await client.getHospitalLabResult(args.link);
+  const data = await client.getHospitalLabResult(
+    args.link,
+    args.hospital ? { select: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$ddlHospitalName", value: args.hospital } : undefined,
+  );
   return { data, guidance: "Hospital lab result as parsed from the portal page. Preserve Hebrew names, units and ranges." };
 }

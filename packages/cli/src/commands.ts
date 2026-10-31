@@ -103,10 +103,10 @@ export const COMMANDS: Record<string, Command> = {
     options: ["ref", "out"],
   },
   "hospital-lab-result": {
-    usage: "hospital-lab-result --link PATH [--json]",
+    usage: "hospital-lab-result --link PATH [--hospital VALUE] [--json]",
     summary: "Read one hospital lab result page (from a hospital_labs row's link).",
-    description: "Fetches HospitalsLabTestDetails.aspx with the s/d/h query a `records --source hospital_labs` row carries in `links`, and reads it with the lab-detail parser: analytes, values, units, ranges, flags.",
-    options: ["link", "json"],
+    description: "Fetches HospitalsLabTestDetails.aspx with the s/d/h query a `records --source hospital_labs` row carries in `links`, and reads it with the lab-detail parser: analytes, values, units, ranges, flags. The page answers only while its hospital is the portal's current search, so pass the row's `context.value` as --hospital and the search is replayed first.",
+    options: ["link", "hospital", "json"],
     notes: "Links only from the owner's own list; nothing is invented.",
   },
   export: {

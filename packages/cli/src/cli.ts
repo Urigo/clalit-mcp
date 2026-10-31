@@ -329,13 +329,17 @@ export async function runCli(args: string[]): Promise<number> {
     case "hospital-lab-result": {
       const link = flag(rest, "link");
       if (!link) {
-        console.error("Usage: clalit-mcp hospital-lab-result --link PATH [--json]   (PATH from a `records --source hospital_labs --json` row's links)");
+        console.error("Usage: clalit-mcp hospital-lab-result --link PATH [--hospital VALUE] [--json]   (PATH and the context.value from a `records --source hospital_labs --json` row)");
         return 2;
       }
       const client = await requireClient();
       if (!client) return 3;
       try {
-        const data = await client.getHospitalLabResult(link);
+        const hospital = flag(rest, "hospital");
+        const data = await client.getHospitalLabResult(
+          link,
+          hospital ? { select: "ctl00$ctl00$cphBody$bodyContent$LabsHistory1$ddlHospitalName", value: hospital } : undefined,
+        );
         if (has(rest, "json")) console.log(JSON.stringify({ data }, null, 2));
         else {
           console.log(data.title);

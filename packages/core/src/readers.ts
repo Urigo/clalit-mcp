@@ -532,8 +532,12 @@ export class ClalitReaders {
         const key = JSON.stringify([row.cells, row.ref?.actionUrl ?? ""]);
         if (seen.has(key)) continue;
         seen.add(key);
-        // The hospital is the search, not a grid column; keep it with the row.
-        collected.push(option ? { ...row, fields: { "בית חולים": option[1], ...row.fields }, cells: [option[1], ...row.cells] } : row);
+        // The hospital is the search, not a grid column; keep it with the row, and keep which search it was.
+        collected.push(
+          option && search.fanOutSelect
+            ? { ...row, fields: { "בית חולים": option[1], ...row.fields }, cells: [option[1], ...row.cells], context: { select: search.fanOutSelect, value: option[0] } }
+            : row,
+        );
       }
     }
     return collected;
@@ -611,7 +615,7 @@ export class ClalitReaders {
    * (HospitalsLabTestDetails.aspx?s&d&h, from the row's `links`), read with
    * the clinic lab detail parser: the page is the same control.
    */
-  async getHospitalLabResult(link: string): Promise<LabResultDetail> {
+  async getHospitalLabResult(link: string, context?: { select: string; value: string }): Promise<LabResultDetail> {
     this.transport.assertNotIdleExpired();
     const url = new URL(link, PORTAL_ORIGIN);
     if (url.origin !== PORTAL_ORIGIN || !/^\/OnlineWeb\/Services\/HospitalsLabs\/HospitalsLabTestDetails\.aspx$/i.test(url.pathname)) {
@@ -621,7 +625,31 @@ export class ClalitReaders {
     const d = url.searchParams.get("d") ?? "";
     const h = url.searchParams.get("h") ?? "";
     if (!s || !d || !h) throw new ParseError("INVALID_REF", "Hospital lab link is missing its parameters.");
-    const html = await readText(await this.transport.request(url.pathname + url.search));
+    // The result page answers only while its hospital is the portal's current search (the page keeps that
+    // server-side), so the row's search is replayed first — as a person would: pick the hospital, show, open.
+    const source = recordSource("hospital_labs")!;
+    if (context?.select && source.search) {
+      const listUrl = PORTAL_ORIGIN + source.path;
+      const page = await readText(await this.transport.request(listUrl));
+      const state = extractWebFormsState(page);
+      const fields = {
+        ...source.search.fields,
+        [context.select]: context.value,
+        [source.search.fromField]: source.search.minDate,
+        [source.search.toField]: todayPortalDate(),
+      };
+      await readText(
+        await this.transport.request(listUrl, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: buildPostBackBody({ ...state, hidden: omitFamilySliderFields(state.hidden) }, fields, source.search.submit, ""),
+        }),
+      );
+    }
+    const html = await readText(await this.transport.request(url.pathname + url.search, { headers: { referer: PORTAL_ORIGIN + source.path } }));
+    if (/object\s+moved/i.test(html.slice(0, 2000))) {
+      throw new UpstreamError("DETAIL_REDIRECTED", 302);
+    }
     return parseLabDetailHtml(html, { s, d, ls: h });
   }
 

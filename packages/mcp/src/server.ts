@@ -209,7 +209,10 @@ export function createMcpServer(extra?: ExtraTools): Server {
         description: "Read one hospital lab result page using a hospital_labs row's link from list_records (analytes, values, units, ranges, flags).",
         inputSchema: {
           type: "object",
-          properties: { link: { type: "string", description: "The row's link (HospitalsLabTestDetails.aspx?s&d&h)." } },
+          properties: {
+            link: { type: "string", description: "The row's link (HospitalsLabTestDetails.aspx?s&d&h)." },
+            hospital: { type: "string", description: "The row's context.value (hospital option), so its search is replayed first." },
+          },
           required: ["link"],
         },
       },

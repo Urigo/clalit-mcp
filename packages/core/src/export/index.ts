@@ -15,6 +15,8 @@
  */
 import { createHash } from "node:crypto";
 import { ClalitError, ReauthenticationRequired } from "../errors.js";
+import { DOCUMENT_SOURCES } from "../documents/sources.js";
+import type { ClalitDocument, DocumentListItem } from "../documents/types.js";
 import type { LabDocument, LabResultDetail } from "../labs/types.js";
 import type { LabOrderDetail } from "../lab-orders/types.js";
 import type { PrescriptionListItem } from "../prescriptions/types.js";
@@ -29,6 +31,8 @@ export interface ExportClient {
   listPrescriptions(options?: { includeExpired?: boolean }): Promise<PrescriptionListItem[]>;
   listLabOrders(): Promise<ListedLabOrder[]>;
   getLabOrder(refOrToken: string): Promise<LabOrderDetail>;
+  listDocuments(sourceId: string, options?: { fromDate?: string; toDate?: string }): Promise<DocumentListItem[]>;
+  getDocument(refOrToken: string): Promise<ClalitDocument>;
 }
 
 /** Where the files go. The CLI gives a folder; tests give memory. */
@@ -43,7 +47,7 @@ export interface ExportOptions {
   /** Labs list range, `dd.MM.yyyy`; the portal's default range is short, so the export asks for a wide one. */
   fromDate?: string;
   toDate?: string;
-  /** Download each result's PDF (default true). */
+  /** Download the PDFs: each lab result's, and every document of the document sources (default true). The lists are written either way. */
   documents?: boolean;
   /** Expired prescriptions too (default true: an archive keeps history). */
   includeExpired?: boolean;
@@ -244,6 +248,48 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
       if (e instanceof ReauthenticationRequired) throw e;
       problem("lab-orders/list.json", e);
     }
+
+    // ---- documents: visit summaries, hospital summaries, medical approvals, Form 17 ----
+    for (const source of DOCUMENT_SOURCES) {
+      const folder = `documents/${source.id}`;
+      log(source.id);
+      let rows: DocumentListItem[];
+      try {
+        await sleep(pace);
+        // Each source is searched over the whole range the portal allows; --from/--to filter labs only.
+        rows = await client.listDocuments(source.id);
+        await putJson(`${folder}/list.json`, wrap("document-list", rows.map(withoutToken), { title: source.title }));
+        log(`  ${rows.length} ${rows.length === 1 ? "document" : "documents"}`);
+      } catch (e) {
+        if (e instanceof ReauthenticationRequired) throw e;
+        problem(`${folder}/list.json`, e);
+        continue;
+      }
+      if (!documents) continue;
+      const seenDocs = new Set<string>();
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]!;
+        let name = stem(isoDate(row.date), shortHash(row.ref.actionUrl, row.ref.actionData ?? ""), safeTitle(row.details.join("-")));
+        if (seenDocs.has(name)) name += "-" + i;
+        seenDocs.add(name);
+        const pdf = `${folder}/files/${name}.pdf`;
+        if (await sink.exists(pdf)) {
+          count(pdf);
+          continue;
+        }
+        try {
+          await sleep(pace);
+          const doc = await client.getDocument(row.refToken);
+          await sink.putBytes(pdf, doc.bytes);
+          count(pdf);
+        } catch (e) {
+          if (e instanceof ReauthenticationRequired) throw e;
+          if (e instanceof ClalitError && e.code === "NO_DOCUMENT") withoutDocument += 1;
+          else problem(pdf, e);
+        }
+        if ((i + 1) % 10 === 0 || i === rows.length - 1) log(`  ${i + 1}/${rows.length}`);
+      }
+    }
   } catch (e) {
     if (!(e instanceof ReauthenticationRequired)) throw e;
     stopped = true;
@@ -260,7 +306,7 @@ export async function exportAll(client: ExportClient, sink: ExportSink, options:
 function readme(r: { startedAt: string; folders: Record<string, number>; problems: ExportProblem[]; stopped: boolean; fromDate: string; toDate: string; documents: boolean; withoutDocument: number }): string {
   const has = (f: string) => (r.folders[f] ?? 0) > 0;
   const failedIn = new Set(r.problems.map((p) => p.where.split("/")[0]));
-  const missing = ["labs", "prescriptions", "lab-orders"].filter((f) => !has(f));
+  const missing = ["labs", "prescriptions", "lab-orders", "documents"].filter((f) => !has(f));
   const files = (n: number | undefined) => `${n ?? 0} ${n === 1 ? "file" : "files"}`;
   const absent = missing.map((f) => `\`${f}/\`` + (failedIn.has(f) ? " (collecting it failed — see export-errors.json)" : " (nothing on record, or not reached)")).join(", ");
   return `# Clalit health records export
@@ -296,11 +342,18 @@ ${has("prescriptions") ? `
 ${has("lab-orders") ? `
 **\`lab-orders/\`** · ${files(r.folders["lab-orders"])} — \`list.json\`: referrals for laboratory tests (\`issuanceDate\`,
 \`referer\`, \`validTo\`); \`details/\`: the tests each order lists (\`data.items[]\`).` : ""}
+${has("documents") ? `
+**\`documents/\`** · ${files(r.folders.documents)} — one folder per portal source, each with \`list.json\` (\`data[]\`: \`date\`,
+\`details[]\` — the row's cells as shown: doctor, specialty, hospital, type…) and${r.documents ? " \`files/<date>_<id>_<details>.pdf\`, the portal's own PDF of each" : " no PDFs (--no-documents)"}:
+\`visit_summaries/\` סיכומי ביקור רפואה יועצת (specialist visit summaries), \`hospital_summaries/\` סיכומים מבתי חולים
+(hospital discharge and summary letters; the first detail is the hospital), \`medical_approvals/\` אישורים רפואיים
+(medical certificates and approvals), \`form17/\` התחייבויות — Form 17 commitments, which the portal keeps for one year only.
+The PDFs are the clinical text; \`list.json\` only says which exist.` : ""}
 ${missing.length ? `\nThis export has no ${absent}.\n` : ""}
 ## What is not here
 
-Visit summaries, imaging, vaccinations, letters, general referrals and the medical file: this client does not read them
-(Clalit Online shows them, but no reader exists yet). An absence here is not an absence in your history.
+Imaging, vaccinations, general referrals (MedicalReferrals.aspx), diagnoses and the medical file itself: this client does
+not read them (Clalit Online shows them, but no reader exists yet). An absence here is not an absence in your history.
 
 ## What this export failed to collect
 

@@ -13,7 +13,9 @@
 | Lab order detail | `lab-order --ref` | `get_lab_order` | `getLabOrder(ref)` |
 | Documents list (visit summaries, hospital summaries, medical approvals, Form 17) | `documents --source` | `list_documents` | `listDocuments(source)` |
 | Document PDF | `document --ref` | `get_document` | `getDocument(ref)` |
-| Export everything to a folder (documents included) | `export` | — | `exportAll(client, sink)` |
+| Records: diagnoses, sensitivities, chronic medications, purchased medicines, medication approvals, imaging (clinics / hospitals / external), hospital visits, hospital labs, referrals | `records --source` | `list_records` | `listRecords(source)` |
+| Record PDF (imaging report, referral) | `record-document --ref` | `get_record_document` | `getRecordDocument(ref)` |
+| Export everything to a folder (documents and records included) | `export` | — | `exportAll(client, sink)` |
 | Sign in / status / sign out | `login` / `logout` | `clalit_login` / `clalit_session_status` / `clalit_logout` | n/a |
 | Map the portal's pages (value-free) | `tools/sitemap.mts` | — | n/a |
 
@@ -47,14 +49,32 @@ Pages sharing the portal's DownloadPdfBtnBinder flow: each grid row carries `dat
 - Medical approvals: `GET/POST /OnlineWeb/Services/MedicalApproval/MedicalApproval.aspx` → `MedicalApprovalPDFHandler.ashx?Print=false`
 - Form 17: `GET /OnlineWeb/Services/Form17/Form17.aspx` (last year only) → `Form17PdfHandler.ashx?print=false`
 
+### Records
+
+One grid per page, all in Clalit Online's grid markup (`table.ClalitGridTable`, `th` headers, `tr.ClalitGridRow` / `ClalitGridAltRow`; the hidden `DescBlockRow` rows are skipped). Rows are kept as shown, keyed by the Hebrew headers. Pages with a date-range search get `txtFromDate` / `txtToDate` + the page's "show" link button (`__EVENTTARGET`); per-hospital pages are searched once per dropdown option; a pager (`PagerLink-N`) is walked, and a full page without one is split by date as the document grids are. Observed with `tools/sitemap.mts` (Oct 2026):
+
+- Diagnoses: `GET /OnlineWeb/Services/Diagnosis/Diagnosis.aspx` (grid `gvDiagnosis`)
+- Sensitivities: `GET /OnlineWeb/Services/Sensitivities/Sensitivities.aspx` (grid `gvSensitivities`)
+- Chronic medications: `GET /OnlineWeb/Services/Medicine/PatientChronicDrugs.aspx` (grid `gvChronicMedications`)
+- Medicines purchased: `GET/POST /onlineweb/Services/Medicine/MedicineSearch.aspx` (`dateRange$txtFromDate/To`, `btnShow`, pager `MedicineSearchCustomGrid$PagerLink-N`; since 01.08.2008)
+- Medication approvals: `GET/POST /OnlineWeb/Services/Medicine/PatientExceptionMedRequests.aspx` (`DatepickerRangeCalendar$…`, `btnRequestsSearch`)
+- Imaging, clinics: `GET/POST /OnlineWeb/Services/Rentgen/Rentgen.aspx` (`DatepickerRangeCalendar1$…`, `btnShow`; row action `/OnlineWeb/api/Rentgen/GetPDFDocument/…` → `RentgenPDFHandler.ashx?Print=false`)
+- Imaging, Clalit hospitals: `GET/POST /OnlineWeb/ServicesForAll/HospitalsVisits/RentgenHospitals.aspx` (+ `ddlHospitalName` fan-out → `HospitalsVisits/RentgenPDFHandler.ashx?Print=false`)
+- Imaging, external institutes: `GET/POST /OnlineWeb/Services/rentgen/rentgenmor.aspx` (row action `/OnlineWeb/api/Fetoprotein/DoesPdfExists?documentId=…` → `Fetoprotein/AFPDisplayPDF.ashx?print=false`)
+- Hospital visits: `GET/POST /OnlineWeb/ServicesForAll/HospitalsVisits/HospitalsVisitsList.aspx` (`LabsHistory1$datepickerRangeCalendar$…`, `LabsHistory1$ddlHospitalName` fan-out, `LabsHistory1$btnGetTestsAcc`)
+- Hospital labs: `GET/POST /OnlineWeb/Services/HospitalsLabs/HospitalsLabsTestList.aspx` (same controls)
+- Referrals: `GET/POST /OnlineWeb/Services/MedicalReferrals/MedicalReferrals.aspx` (`dateRange$…`, `MedicalReferralsList$chkNotValid` on, `btnShow`, pager `MedicalReferralsList$btnNext`; a repeater of `.dataHead` blocks each with a services table; action `/OnlineWeb/api/MedicalReferral/DoesPdfExists/…` → `MedicalReferralPDFHandler.ashx?Print=false`). The portal searches the last year only.
+
 ## Still out / roadmap
 
 | Surface | Status |
 | --- | --- |
 | Prescription print / PDF (`PatientPrescriptionsExPrint.aspx`) | **Out** — referenced in UI, not fetched |
 | Lab-order print / PDF / email download | **Out** — UI present, not fetched |
-| `MedicalReferrals.aspx` (general הפניות) | **Blocked** — nav-only in HAR; do not invent |
-| Rentgen / chronic drugs / medicine-to-door | Out |
+| Vaccinations (`Vaccinations.aspx`), blood type (`BloodType.aspx`) | **Out** — React pages (`/OnlineWeb/JSX/Vaccination/*.jsx`) filled from an API not yet observed; read the bundle before building |
+| Appointments (`FamilyHomePage.aspx` visits list), medical recommendations (`Measures.aspx`), billing reports, genetic tests | Out — pages mapped, no reader yet |
+| Hospital lab / visit detail pages | Out — rows keep their `links`; the detail pages are not read |
+| Medicine-to-door, pharmacy consultation | Out |
 | Family / linked-member switch | Refused (never post FamilySlider `au`/`cu`) |
 
 ## Explicitly out of scope

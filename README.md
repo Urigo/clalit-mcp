@@ -55,6 +55,8 @@ npx tsx packages/cli/src/main.ts lab-orders --json
 npx tsx packages/cli/src/main.ts lab-order --ref <token-from-lab-orders> --json
 npx tsx packages/cli/src/main.ts documents --source visit_summaries --json   # or hospital_summaries | medical_approvals | form17
 npx tsx packages/cli/src/main.ts document --ref <token-from-documents> --out summary.pdf
+npx tsx packages/cli/src/main.ts records --source diagnoses --json         # sensitivities | chronic_medications | medicines_purchased | medication_approvals | imaging_clinics | imaging_hospitals | imaging_external | hospital_visits | hospital_labs | referrals
+npx tsx packages/cli/src/main.ts record-document --ref <token-from-records> --out report.pdf
 npx tsx packages/cli/src/main.ts export --out ~/health
 npx tsx packages/cli/src/main.ts help
 ```
@@ -64,13 +66,14 @@ npx tsx packages/cli/src/main.ts help
 ## Keep a copy of everything: `export`
 
 ```sh
-npx tsx packages/cli/src/main.ts export                 # ./clalit-export-<today>/: labs (every result and its PDF), prescriptions, lab orders, documents
+npx tsx packages/cli/src/main.ts export                 # ./clalit-export-<today>/: labs (every result and its PDF), prescriptions, lab orders, documents, records
 npx tsx packages/cli/src/main.ts export --out ~/health  # under that directory; --no-documents skips the PDFs
 ```
 
 One folder: labs (one JSON per result, plus its PDF), prescriptions, lab orders, documents (visit summaries, hospital
-summaries, medical approvals and Form 17 — a list and the PDFs per source), and a root `README.md` that describes
-each folder for an AI assistant (layout in [docs/CLI.md](docs/CLI.md)). `--from`/`--to` (`dd.MM.yyyy`) filter labs only, default 01.01.1990 to today; a rerun skips what it already has.
+summaries, medical approvals and Form 17 — a list and the PDFs per source), records (diagnoses, sensitivities, the
+regular-medication list, pharmacy purchases, medication approvals, imaging reports with their PDFs, hospital visits and
+labs, referrals with their PDFs), and a root `README.md` that describes each folder for an AI assistant (layout in [docs/CLI.md](docs/CLI.md)). `--from`/`--to` (`dd.MM.yyyy`) filter labs only, default 01.01.1990 to today; a rerun skips what it already has.
 Layout modeled on [Health Records Export for Maccabi](https://github.com/RoniRachmani/health-records-export-for-maccabi); [liberate-labs](https://github.com/Urigo/liberate-labs) can load it into SQLite.
 The folder is not encrypted, and anything you open in an AI app is sent to that provider (see the privacy note at the top).
 
@@ -127,6 +130,7 @@ A session made with `login` is picked up. Without one, the tools answer with a l
 | `list_prescriptions`, `get_prescription_issue_status` | Prescriptions and their pharmacy issue status |
 | `list_lab_orders`, `get_lab_order` | Lab orders and one order's detail |
 | `list_documents`, `get_document` | Visit summaries, hospital summaries, medical approvals, Form 17, and their PDFs |
+| `list_records`, `get_record_document` | Diagnoses, sensitivities, chronic medications, purchased medicines, medication approvals, imaging reports (clinics, hospitals, external) with their PDFs, hospital visits, hospital labs, referrals with their PDFs |
 | `clalit_login`, `clalit_session_status`, `clalit_logout` | The sign-in link, whether a session is live and until when, and sign-out |
 
 ## Mapping the portal: `tools/sitemap.mts`
@@ -138,6 +142,7 @@ npx tsx tools/sitemap.mts --out ./clalit-sitemap --raw    # also keeps each page
 
 A GET-only, paced walk over the signed-in portal's own links. `sitemap.json` records titles, headings, form field names,
 dropdown labels and grid headers — never a value — so a page nobody reads yet can be turned into a reader from evidence.
+The record sources above were built from one such map.
 
 ## License
 

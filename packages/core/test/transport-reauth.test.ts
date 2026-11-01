@@ -114,3 +114,26 @@ describe("ClalitTransport idle check with a saved session", () => {
     expect((await transport.exportSession()).lastUsedAt).toBe(new Date(now).toISOString());
   });
 });
+
+describe("checkSession", () => {
+  const saved: ClalitSession = { version: 1, cookies: new CookieJar().serializeSync()!, authenticatedAt: new Date().toISOString() };
+
+  test("a 5xx from the labs page is a retryable upstream error, not a sign-out", async () => {
+    const { connect } = await import("../src/client.js");
+    const { UpstreamError } = await import("../src/errors.js");
+    const fetchMock: typeof fetch = async () => new Response("down", { status: 503, headers: { "content-type": "text/html" } });
+    const client = await connect(saved, { fetch: fetchMock });
+    const err = await client.checkSession().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UpstreamError);
+    expect(err).not.toBeInstanceOf(ReauthenticationRequired);
+    expect((err as { status?: number }).status).toBe(503);
+  });
+
+  test("a redirect to the sign-in page is a sign-out", async () => {
+    const { connect } = await import("../src/client.js");
+    const fetchMock: typeof fetch = async () =>
+      new Response(OBJECT_MOVED, { status: 302, headers: { "content-type": "text/html", location: `${PATHS.login}?ReturnUrl=x` } });
+    const client = await connect(saved, { fetch: fetchMock });
+    await expect(client.checkSession()).rejects.toBeInstanceOf(ReauthenticationRequired);
+  });
+});

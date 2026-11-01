@@ -172,3 +172,49 @@ describe("SessionKeeper", () => {
     await expect(keeper.use(async () => 1)).rejects.toBeInstanceOf(SignInRequired);
   });
 });
+
+describe("SessionKeeper keeps the session on anything but a sign-in demand", () => {
+  test("reload: a network error while checking keeps session.json and the client", async () => {
+    const store = fakeStore(session);
+    const client = fakeClient({
+      checkSession: vi.fn(async () => {
+        throw new Error("The Clalit request could not be completed (network error).");
+      }),
+    });
+    const keeper = new SessionKeeper({ store, open: async () => client, log: () => undefined });
+    await keeper.reload();
+    expect(store.clear).not.toHaveBeenCalled();
+    expect(keeper.status().state).toBe("signed_in");
+    expect(keeper.status().lastError).toMatch(/network error/);
+    // The client is usable meanwhile.
+    expect(await keeper.use(async () => 7)).toBe(7);
+  });
+
+  test("reload: the portal demanding a sign-in does end the session", async () => {
+    const store = fakeStore(session);
+    const client = fakeClient({
+      checkSession: vi.fn(async () => {
+        throw new ReauthenticationRequired(302);
+      }),
+    });
+    const keeper = new SessionKeeper({ store, open: async () => client, log: () => undefined });
+    await keeper.reload();
+    expect(store.clear).toHaveBeenCalledOnce();
+    expect(keeper.status().state).toBe("expired");
+  });
+
+  test("reload: a session file that cannot be opened is left on disk", async () => {
+    const store = fakeStore(session);
+    const keeper = new SessionKeeper({
+      store,
+      open: async () => {
+        throw new Error("bad cookie jar");
+      },
+      log: () => undefined,
+    });
+    await keeper.reload();
+    expect(store.clear).not.toHaveBeenCalled();
+    expect(keeper.status().state).toBe("signed_out");
+    expect(keeper.status().lastError).toBe("bad cookie jar");
+  });
+});

@@ -47,4 +47,4 @@ For a second person, run a second copy with its own `CLALIT_CONFIG_DIR`, its own
 
 ## Image
 
-The `Dockerfile` builds an image of the stdio server, published as `ghcr.io/tadnir/clalit-mcp` from master (Node, the packages, and Playwright's Chromium for the sign-in). Run it with `docker run -i`, or use it as a base for an image that adds your MCP proxy.
+This repository publishes no container image. To run the stdio server in a container, build one from a Node 22 image with the packages installed and Playwright's Chromium for the sign-in page (`npx playwright install --with-deps chromium`), run it with `docker run -i`, and set `CLALIT_LOGIN_HOST=0.0.0.0` behind your proxy as above.

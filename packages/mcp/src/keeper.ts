@@ -138,7 +138,29 @@ export class SessionKeeper {
         });
         this.#log("session is signed in");
       } catch (err) {
-        await this.#lost(err);
+        // Only the portal saying "sign in again" ends the session. A network error or an Imperva
+        // hiccup here keeps session.json and the client, as tick() does: the next round retries,
+        // and a tool call meanwhile uses the client as it is.
+        if (err instanceof ReauthenticationRequired) {
+          await this.#lost(err);
+          return;
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        if (this.#client) {
+          this.#set({
+            ...this.#ends(),
+            state: "signed_in",
+            signedInAt: session.authenticatedAt,
+            ...(this.#status.lastCheckedAt ? { lastCheckedAt: this.#status.lastCheckedAt } : {}),
+            lastError: message,
+          });
+          this.#log(`could not check the saved session, keeping it: ${message}`);
+        } else {
+          // The session file could not even be opened (unreadable cookies): nothing to keep alive,
+          // but nothing is deleted either; the person decides.
+          this.#set({ ...this.#ends(), state: "signed_out", lastError: message });
+          this.#log(`could not open the saved session, left as it is: ${message}`);
+        }
       }
     });
   }

@@ -250,9 +250,6 @@ export class SessionKeeper {
     await this.#store.clear();
     const message = err instanceof Error ? err.message : String(err);
     const byLength = message === LENGTH_ENDED;
-    if (!(err instanceof ReauthenticationRequired) && !byLength) {
-      this.#log(`could not open the saved session: ${message}`);
-    }
     this.#set({
       ...this.#ends(),
       state: "expired",

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2026-11-02
 
 - **Documents**: `documents` / `document` (CLI) and `list_documents` / `get_document` (MCP) read visit summaries (סיכומי ביקור רפואה יועצת), hospital summaries (סיכומים מבתי חולים, searched per hospital), medical approvals (אישורים רפואיים) and Form 17 (התחייבויות) with their PDFs; a search that fills the portal's 10-row page is split by date until every row is found. Ported from [tadnir/clalit-mcp](https://github.com/tadnir/clalit-mcp) by Michael Tadnir.
 - **Records**: `records --source` / `record-document` (CLI) and `list_records` / `get_record_document` (MCP) read the portal's grid pages as they are shown, keyed by their Hebrew headers: diagnoses, sensitivities, chronic medications, medicines purchased (since 08.2008, pager walked), medication approvals, imaging reports from clinics, Clalit hospitals and external institutes (with the report PDF), hospital visits, hospital labs (with every draw's result page, read with the lab-detail parser), general referrals (last year only, with the PDF) — the page the roadmap had as "blocked" — plus upcoming appointments (home page), the portal's personalised recommendations (Measures), and vaccinations and blood type from the endpoints the portal's React pages read. Built from a `tools/sitemap.mts` map of a live account and `tools/dump-page.mts` dumps of its pages and bundles.
